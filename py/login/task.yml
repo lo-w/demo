@@ -1,0 +1,118 @@
+# task file
+# name: the task name
+# type: the task type
+#       1 web task(default value)
+#       0 other task
+# url:  the link address
+# ets:  each task need to be executed from 0 to N
+# o:    operations
+#       0 wait
+#       1 left single click
+#       2 left double click
+#       3 right single click
+#       4 scroll down
+#       5 input the value
+# v:    value
+#       for mouse event(1/2/3), we need input an image to find the location on screen
+#       for wait/scroll button, we need input a int value
+#       for input value, we can write the string value to coresponded location
+# s:    skip
+#       bool True/False
+# https://chromedriver.chromium.org/downloads
+
+# all the tasks, script get tasks by the key 'tasks' 
+tasks:
+# example
+# task name
+  - name: "恩山"
+    type: 1
+    # target link address
+    url: "https://www.right.com.cn/forum/"
+    # the steps need to executed in this task
+    ets:
+      0:
+        o: 1
+        v: "enshan_01luntan.png"
+
+  - name: "爱快"
+    type: 1
+    url: "https://bbs.ikuai8.com/forum.php"
+    ets:
+      0:
+        o: 1
+        v: "ikuai_01qiandao.png"
+
+  - name: "52pojie"
+    type: 1
+    url: "https://www.52pojie.cn/"
+    ets:
+      0:
+        o: 1
+        v: "52pj_01qiandao.png"
+
+  - name: "正版"
+    type: 1
+    url: "https://www.getitfree.cn/"
+    ets:
+      0:
+        o: 4
+        v: 5
+      1:
+        o: 1
+        v: "zb_01qiandao.png"
+
+  - name: "远景"
+    type: 1
+    url: "https://i.pcbeta.com/"
+    ets:
+      0:
+        o: 1
+        v: "yj_01renwu.png"
+      1:
+        o: 1
+        v: "yj_02shenqing.png"
+        s: 1
+      2:
+        o: 1
+        v: "yj_01renwu.png"
+      3:
+        o: 1
+        v: "yj_02shenqing.png"
+        s: 1
+      4:
+        o: 1
+        v: "yj_01renwu.png"
+      5:
+        o: 1
+        v: "yj_03jinxing.png"
+      6:
+        o: 1
+        v: "yj_04huitie.png"
+      7:
+        o: 1
+        v: "yj_05daka.png"
+      8:
+        o: 1
+        v: "yj_06huifu.png"
+      9:
+        o: 5
+        v: "祝论坛繁荣, 每天签到"
+      10:
+        o: 1
+        v: "yj_07canyu.png"
+      11:
+        o: 0
+        v: 4
+      12:
+        o: 1
+        v: "yj_08top.png"
+        s: 1
+      13:
+        o: 1
+        v: "yj_01renwu.png"
+      14:
+        o: 1
+        v: "yj_03jinxing.png"
+      15:
+        o: 1
+        v: "yj_09lingqu.png"
