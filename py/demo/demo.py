@@ -7,17 +7,18 @@
 
 import os
 import sqlite3
+import threading
 from flask import Flask, request, jsonify, make_response, render_template
 from flask_cors import CORS
 
-license_table           = """
-                            CREATE TABLE IF  NOT EXISTS license(
-                            product       CHAR(50) NOT NULL,
-                            value_package CHAR(50) NOT NULL,
-                            use_case      TEXT     DEFAULT NULL,
-                            description   TEXT     DEFAULT NULL,
-                            dt            datetime DEFAULT current_timestamp);
-                        """
+license_table       = """
+                        CREATE TABLE IF  NOT EXISTS license(
+                        product       CHAR(50) NOT NULL,
+                        value_package CHAR(50) NOT NULL,
+                        use_case      TEXT     DEFAULT NULL,
+                        description   TEXT     DEFAULT NULL,
+                        dt            datetime DEFAULT current_timestamp);
+                    """
 
 license_insert_sql      = "INSERT   INTO license(product,value_package,use_case,description) VALUES(?,?,?,?);"
 product_select_sql      = "SELECT distinct product  FROM license;"
@@ -51,6 +52,7 @@ CORS(app, supports_credentials=True)
 INIT_FLAG        = False
 CUR_DIR          = os.path.dirname(os.path.abspath(__file__))
 CONFIG_DB_PATH   = os.path.join(CUR_DIR, "config.db")
+lock             = threading.Lock()
 
 def check_path(c_path):
     if not os.path.isdir(c_path):
@@ -78,7 +80,11 @@ if INIT_FLAG:
     cur.execute(init_sql)
 
 def sql_info(sql, param=None, query=True):
-    cur.execute(sql, param) if param else cur.execute(sql)
+    try:
+        lock.acquire(True)
+        cur.execute(sql, param) if param else cur.execute(sql)
+    finally:
+        lock.release()
     return cur.fetchall() if query else cur.lastrowid
 
 def get_result(get_sql, param=None):
@@ -112,11 +118,11 @@ def get_use_case_by_prod():
 def get_prod_detail():
     value_package = request.args["value_package"]
     if value_package:
-        param = (request.args["prod_name"], request.args["use_case_name"], value_package)
         select_sql = detail_by_prod_uc_vp
+        param = (request.args["prod_name"], request.args["use_case_name"], value_package)
     else:
-        param = (request.args["prod_name"], request.args["use_case_name"])
         select_sql = detail_by_prod_uc
+        param = (request.args["prod_name"], request.args["use_case_name"])
     return get_result(select_sql, param)
 
 if __name__ == '__main__':

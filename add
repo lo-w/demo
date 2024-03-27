@@ -1,0 +1,7 @@
+git add -f add
+git add -f *.go
+git add -f *.java
+git add -f *.py
+git add -f *.sh
+git add -f *.vbs
+git add -f script/*
