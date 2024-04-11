@@ -72,8 +72,8 @@ END Function
 filePath="./conn.ini"
 Call getConfig(filePath, "pass")
 
-ei="https://internal.ericsson.com/"
-fstr="ericsson"
+ei="CONNECT_URL"
+fstr="FIND_STRING"
 DIM sc:sc = "%comspec% /c curl -Iks " & ei & " | findstr /i " & fstr
 
 IF testConnect(sc) THEN
