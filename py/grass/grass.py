@@ -37,7 +37,9 @@ op.add_argument("--disable-dev-shm-usage")
 # op.add_argument("--load-extension=/opt/.work/grass.crx")
 # alpine 3.15 cannot load extension hence using 3.19
 op.add_extension(os.path.join(workdir, "grass.crx"))
+print("LOAD EXTENSION")
 driver =  webdriver.Chrome(options=op)
+print("START GRASS")
 
 def sleep(sec=10):
     time.sleep(sec)
@@ -80,6 +82,7 @@ def execute_task(driver, task_list):
         val = ""
         if mapto:
             val = user_args.get(mapto)
+            print(val)
         if operation == 'click':
             task_ele.click()
         elif operation == 'input':
@@ -96,7 +99,7 @@ def try_login(driver):
         {"step":"3","findby":"xpath","findvalue":'//button[@type="submit"]', "operation":"click"}
     ]
     execute_task(driver, login_task)
-    wait_for_element(driver, 'xpaht', '//div/a[@href="/dashboard"]', 30)
+    wait_for_element(driver, 'xpath', '//div/a[@href="/dashboard"]', 30)
     print("LOGIN SUCCEED")
 
 def open_dashboard(driver):
@@ -116,7 +119,6 @@ def try_connect(driver):
     execute_task(driver, connect_task)
 
 def start_grass():
-    print("START GRASS")
     # check_extension(driver, extensionid)
     print("TRY TO GET RESP")
     driver.get('https://app.getgrass.io/')
@@ -150,6 +152,7 @@ def get():
     return {'network_quality': network_quality}
 
 if __name__ == '__main__':
+    print("START")
     start_grass()
     app.run(host='localhost',port=3000, debug=False)
     driver.quit()
