@@ -82,7 +82,6 @@ def execute_task(driver, task_list):
         val = ""
         if mapto:
             val = user_args.get(mapto)
-            print(val)
         if operation == 'click':
             task_ele.click()
         elif operation == 'input':
@@ -137,18 +136,10 @@ def start_grass():
 def get():
     try:
         network_quality_ele = wait_for_element(driver, 'xpath', '//div[contains(@class, "chakra-stack"]/div[contains(@class, "chakra-skeleton"]')
-        # badges = wait_for_element(driver, 'xpath', '//span[contains(@class, "chakra-badge")]/text()')
-        # badges = driver.find_elements('xpath', '//span[contains(@class, "chakra-badge")]/text()')
         network_quality = network_quality_ele.text
-        print(network_quality)
     except:
         network_quality = None
-        # driver.get('https://app.getgrass.io/')
         driver.save_screenshot('connect.png')
-        # driver.get('chrome-extension://%s/index.html' % extensionid)
-        # try_connect(driver)
-        # save_log(driver)
-        # try_re_connect(driver, {})
     return {'network_quality': network_quality}
 
 if __name__ == '__main__':
