@@ -7,9 +7,10 @@
 
 import os
 import time
+import json
 import codecs
 import random
-from flask import Flask
+from flask import Flask, Response
 from selenium import webdriver
 
 app              = Flask(__name__)
@@ -141,10 +142,11 @@ def start_grass():
 
     print("WAIT TO CONNECT")
 
-@app.route('/')
+@app.route('/', methods=['GET'])
 def get():
     connect = None
     net_quality = None
+    net_earn = None
     try:
         connect_ele = wait_for_element(driver, 'xpath','//div[contains(@class, "chakra-stack")]/span[contains(@class, "chakra-badge")]//p[contains(@class,"chakra-text")]')
         if connect_ele:
@@ -160,10 +162,14 @@ def get():
             net_earn = network_quality_eles[-1].text.strip()
     except:
         save_log(driver)
-    return {"connect":connect, "network_quality": net_quality, "earnings": net_earn}
+
+    resp = Response(json.dumps({"connect":connect, "network_quality": net_quality, "earnings": net_earn}))
+    @resp.call_on_close
+    def on_close():
+        driver.get('chrome-extension://%s/index.html' % extensionid)
+    return resp
 
 if __name__ == '__main__':
-    print("START")
     start_grass()
     app.run(host='localhost',port=3000, debug=False)
     driver.quit()
