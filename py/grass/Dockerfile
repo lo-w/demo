@@ -14,7 +14,7 @@ RUN apk update && \
 ### get chrome & driver
 apk add --no-cache python3 py3-pip chromium chromium-chromedriver wget curl && \
 ### create virtual env
-mkdir -p $WORKDIR && python3 -m venv $WORKDIR && . $WORKDIR/bin/activate && \
+mkdir -p $WORKDIR/logs && python3 -m venv $WORKDIR && . $WORKDIR/bin/activate && \
 ### install python lib
 pip install --no-cache-dir selenium flask && \
 ### get grass extention

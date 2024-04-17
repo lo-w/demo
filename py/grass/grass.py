@@ -7,6 +7,7 @@
 
 import os
 import time
+import codecs
 import random
 from flask import Flask
 from selenium import webdriver
@@ -15,6 +16,15 @@ app              = Flask(__name__)
 MINS             = 0.5
 MAXS             = 2.0
 INPUT_TIME       = 0.1
+
+def sleep(sec=10):
+    time.sleep(sec)
+
+def get_sleep(mi, mx):
+    return random.uniform(mi, mx)
+
+def get_path(f_path):
+    return os.path.join(workdir, f_path)
 
 def get_param():
     try:
@@ -34,24 +44,21 @@ op = webdriver.ChromeOptions()
 op.add_argument("--headless=new")
 op.add_argument("--no-sandbox")
 op.add_argument("--disable-dev-shm-usage")
-# op.add_argument("--load-extension=/opt/.work/grass.crx")
+# op.add_argument("--load-extension=%s" % get_path("grass.crx"))
 # alpine 3.15 cannot load extension hence using 3.19
-op.add_extension(os.path.join(workdir, "grass.crx"))
+op.add_extension(get_path("grass.crx"))
+
 print("LOAD EXTENSION")
 driver =  webdriver.Chrome(options=op)
 print("START GRASS")
 
-def sleep(sec=10):
-    time.sleep(sec)
-
-def get_sleep(mi, mx):
-    return random.uniform(mi, mx)
-
 def save_log(driver):
     print("SAVE LOG TO LOCAL")
-    driver.save_screenshot('error.png')
+    driver.save_screenshot(get_path('logs/error.png'))
+    with codecs.open(get_path("logs/connect.html"), "w", "utf-8") as hf:
+        hf.write(driver.page_source)
     logs = driver.get_log('browser')
-    with open('error.log', 'a') as f:
+    with codecs.open(get_path('logs/error.log'), "a", "utf-8") as f:
         for log in logs:
             f.write(str(log)+'\n')
 
@@ -134,13 +141,21 @@ def start_grass():
 
 @app.route('/')
 def get():
+    connect = None
+    net_qua = None
     try:
-        network_quality_ele = wait_for_element(driver, 'xpath', '//div[contains(@class, "chakra-stack"]/div[contains(@class, "chakra-skeleton"]')
-        network_quality = network_quality_ele.text
+        connect_ele = wait_for_element(driver, 'xpath','//div[contains(@class, "chakra-stack")]/span[contains(@class, "chakra-badge")]//p[contains(@class,"chakra-text")]/text()')
+        if connect_ele:
+            connect = connect_ele[0] 
+
+        network_quality_ele = wait_for_element(driver, 'xpath','//div[contains(@class, "chakra-stack")]/div[contains(@class, "chakra-skeleton")]/p[contains(@class,"chakra-text")]/text()')
+        for ele in network_quality_ele:
+            if "network quality:" in ele.lower():
+                net_qua = ele.split(':')[-1].strip()
+                break
     except:
-        network_quality = None
-        driver.save_screenshot('connect.png')
-    return {'network_quality': network_quality}
+        save_log(driver)
+    return {"connect":connect, "network_quality": net_qua}
 
 if __name__ == '__main__':
     print("START")
