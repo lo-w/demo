@@ -55,16 +55,18 @@ print("START GRASS")
 def save_log(driver):
     print("SAVE LOG TO LOCAL")
     driver.save_screenshot(get_path('logs/error.png'))
-    with codecs.open(get_path("logs/connect.html"), "w", "utf-8") as hf:
+    with codecs.open(get_path("logs/error.html"), "w", "utf-8") as hf:
         hf.write(driver.page_source)
     logs = driver.get_log('browser')
     with codecs.open(get_path('logs/error.log'), "a", "utf-8") as f:
         for log in logs:
             f.write(str(log)+'\n')
 
-def wait_for_element(driver, findby, findvalue, max_attempts=10):
+def wait_for_element(driver, findby, findvalue, max_attempts=10, findtxt=False):
     for _ in range(max_attempts):
         try:
+            if findtxt:
+                return driver.find_elements(findby, findvalue)
             return driver.find_element(findby, findvalue)
         except:
             sleep(get_sleep(MINS, MAXS))
@@ -142,20 +144,23 @@ def start_grass():
 @app.route('/')
 def get():
     connect = None
-    net_qua = None
+    net_quality = None
     try:
-        connect_ele = wait_for_element(driver, 'xpath','//div[contains(@class, "chakra-stack")]/span[contains(@class, "chakra-badge")]//p[contains(@class,"chakra-text")]/text()')
+        connect_ele = wait_for_element(driver, 'xpath','//div[contains(@class, "chakra-stack")]/span[contains(@class, "chakra-badge")]//p[contains(@class,"chakra-text")]')
         if connect_ele:
-            connect = connect_ele[0] 
+            connect = connect_ele.text
 
-        network_quality_ele = wait_for_element(driver, 'xpath','//div[contains(@class, "chakra-stack")]/div[contains(@class, "chakra-skeleton")]/p[contains(@class,"chakra-text")]/text()')
-        for ele in network_quality_ele:
-            if "network quality:" in ele.lower():
-                net_qua = ele.split(':')[-1].strip()
-                break
+        network_quality_eles = wait_for_element(driver, 'xpath','//div[contains(@class, "chakra-stack")]/div[contains(@class, "chakra-skeleton")]/p[contains(@class,"chakra-text")]',findtxt=True)
+        if network_quality_eles:
+            for ele in network_quality_eles:
+                ele_text = ele.text.lower()
+                if "network quality:" in ele_text:
+                    net_quality = ele_text.split(':')[-1].strip()
+                    break
+            net_earn = network_quality_eles[-1].text.strip()
     except:
         save_log(driver)
-    return {"connect":connect, "network_quality": net_qua}
+    return {"connect":connect, "network_quality": net_quality, "earnings": net_earn}
 
 if __name__ == '__main__':
     print("START")
