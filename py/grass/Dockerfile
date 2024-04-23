@@ -24,8 +24,12 @@ wget --no-check-certificate --no-cache --no-cookies -q $(echo $GRASS_EXT | sed "
 ### get grass script
 GRASS_SCR='https://raw.githubusercontent.com/lo-w/demo/main/py/grass/grass.py' && \
 wget --no-check-certificate --no-cache --no-cookies -q $GRASS_SCR -P $WORKDIR && \
+### add cronjob
+echo '*/5 * * * * RANDOM=$(date +%s%N | cut -b10-19) && sleep $(( $RANDOM % 150 )) && curl http://localhost:3000' >> /etc/crontabs/root && \
 ### add start up script
 echo '#!/bin/sh -e' > $STARTUP && \
+echo '### START CRONJOB...' >> $STARTUP && \
+echo 'crond -l 2 -f > /dev/stdout 2> /dev/stderr &' >> $STARTUP && \
 echo '### START GRASS...' >> $STARTUP && \
 echo 'echo "GRASS starting..."' >> $STARTUP && \
 echo '$WORKDIR/bin/python $WORKDIR/grass.py &' >> $STARTUP && \
