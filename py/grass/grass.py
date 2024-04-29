@@ -166,10 +166,11 @@ def get():
     resp = Response(json.dumps({"connect":connect, "network_quality": net_quality, "earnings": net_earn}))
     @resp.call_on_close
     def on_close():
-        if connect == "Connected":
-            driver.get('chrome-extension://%s/index.html' % extensionid)
-        else:
-            start_grass()
+        driver.get('chrome-extension://%s/index.html' % extensionid)
+        #if connect == "Connected":
+        #    driver.get('chrome-extension://%s/index.html' % extensionid)
+        #else:
+        #    start_grass()
     return resp
 
 if __name__ == '__main__':
