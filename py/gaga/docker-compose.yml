@@ -1,0 +1,10 @@
+services:
+  gaga:
+    container_name: lo.gaga
+    ports:
+      - "5060:5060"
+      - "36060:36060"
+    environment:
+      TOKEN: 'lewlqlwjalqflmwd7bb7cb2e6c193e4f'
+    restart: unless-stopped
+    image: lo/gaga:202405
