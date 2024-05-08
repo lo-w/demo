@@ -1,0 +1,16 @@
+services:
+  grass1:
+    container_name: grass1
+    environment:
+      GRASS_USER: 'eino2011@gmail.com'
+      GRASS_PASS: 'w;F}ETKqu8,=4m2v'
+    restart: unless-stopped
+    image: lo/grass:202405
+  grass2:
+    container_name: grass2
+    environment:
+      GRASS_USER: 'gail1984@gmail.com'
+      GRASS_PASS: 'r/)d4ET&7`UG5Kc8'
+    restart: unless-stopped
+    image: lo/grass:202405
+
