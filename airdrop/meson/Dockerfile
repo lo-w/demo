@@ -5,25 +5,28 @@ ENV WORKDIR=/opt/.work \
 
 RUN apk update && \
 apk add --no-cache ca-certificates wget && \
-mkdir -p $WORKDIR/gaga $WORKDIR/meson $WORKDIR/openvpn && \
+mkdir -p $WORKDIR/gaga $WORKDIR/meson $WORKDIR/openvpn /etc/openvpn/ && \
 ### GAGA
 GAGA_URL='https://assets.coreservice.io/public/package/65/gaganode_pro/0.0.300/gaganode_pro-0_0_300.tar.gz' && \
 wget --no-check-certificate --no-cache --no-cookies $GAGA_URL -q -O- | tar -zxf- --strip-components=1 -C $WORKDIR/gaga/ && \
 ### MESON
 MESON_URL='https://staticassets.meson.network/public/meson_cdn/v3.1.20/meson_cdn-linux-amd64.tar.gz' && \
 wget --no-check-certificate --no-cache --no-cookies $MESON_URL -q -O- | tar -zxf- --strip-components=1 -C $WORKDIR/meson/ && \
+### DOWNLOAD PROXY FILE
+PROTON_URL='https://raw.githubusercontent.com/ProtonVPN/scripts/master/update-resolv-conf.sh' && \
+wget --no-check-certificate --no-cache --no-cookies $PROTON_URL -q -O /etc/openvpn/update-resolv-conf && \
 ### START ENTRYPOINT FILE
 echo '#!/bin/sh -e' > $STARTUP && \
 echo '### CHECK PROXY...' >> $STARTUP && \
-echo 'if [ -z $PROXY ]; then' >> $STARTUP && \
+echo 'if [ -z $PROTON ]; then' >> $STARTUP && \
 echo '    echo "not using proxy..."' >> $STARTUP && \
 echo 'else' >> $STARTUP && \
 echo '    echo "install proxy..."' >> $STARTUP && \
 echo '    apk update' >> $STARTUP && \
 echo '    apk add openvpn openresolv bash' >> $STARTUP && \
-echo '    wget --no-check-certificate --no-cache --no-cookies "https://raw.githubusercontent.com/ProtonVPN/scripts/master/update-resolv-conf.sh" -O /etc/openvpn/update-resolv-conf' >> $STARTUP && \
-echo '    chmod +x /etc/openvpn/update-resolv-conf' >> $STARTUP && \
-echo '    openvpn /opt/.work/openvpn/protonvpn.ovpn &' >> $STARTUP && \
+echo '    sed -i "s/^auth-user-pass$/auth-user-pass \/opt\/.work\/openvpn\/pass.txt/g" $WORKDIR/openvpn/protonvpn.ovpn' >> $STARTUP && \
+echo '    openvpn $WORKDIR/openvpn/protonvpn.ovpn &> /dev/null &' >> $STARTUP && \
+echo '    sleep 10' >> $STARTUP && \
 echo 'fi' >> $STARTUP && \
 echo '### START GAGA...' >> $STARTUP && \
 echo 'if [ -z $TOKENG ]; then' >> $STARTUP && \
@@ -45,7 +48,7 @@ echo '    $WORKDIR/meson/meson_cdn &' >> $STARTUP && \
 echo 'fi' >> $STARTUP && \
 echo 'wait -n' >> $STARTUP && \
 echo 'exit $?' >> $STARTUP && \
-chmod +x $STARTUP && \
+chmod +x $STARTUP /etc/openvpn/update-resolv-conf && \
 rm -rf /var/cache/apk/*
 
 ENTRYPOINT ["sh", "-c", "$STARTUP"]
