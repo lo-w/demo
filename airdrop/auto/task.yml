@@ -1,0 +1,161 @@
+# task file
+# name: the task name
+# type: the task type
+#       1 web task(default value)
+#       0 other task
+# url:  the link address
+# ets:  each task need to be executed from 0 to N
+# o:    operations
+#       0 wait
+#       1 left single click
+#       2 left double click
+#       3 right single click
+#       4 scroll down
+#       5 input the value
+# v:    value
+#       for mouse event(1/2/3), we need input an image to find the location on screen
+#       for wait/scroll button, we need input a int value
+#       for input value, we can write the string value to coresponded location
+# s:    skip
+#       bool True/False
+# https://chromedriver.chromium.org/downloads
+
+# all the tasks, script get tasks by the key 'tasks' 
+tasks:
+# example
+# task name
+  - name: "zulu"
+    # skip: True
+    chrome: True
+    type: 1
+    url: "https://testnet.zulunetwork.io/lwazi"
+    ets:
+      0:
+        o: 4
+        v: -100
+      ett: 6
+      rep:
+        0:
+          o: 1
+          v: "meta00chrome.png"
+          # v: "meta00edge.png"
+        1:
+          o: 0
+          v: 2
+        2:
+          o: 1
+          v: "meta01send.png"
+        3:
+          o: 0
+          v: 2
+        4:
+          o: 5
+          v: "0x2Eb6AE43E73EaD3Db8E8477e229b61FA80e38dB1"
+          # v: "0x591377bAe319bCE7d689AB837B370d6775D91D94"
+        5:
+          o: 0
+          v: 2
+        6:
+          o: 5
+          v: "0.0001"
+        7:
+          o: 0
+          v: 2
+        8:
+          o: 1
+          v: "meta02next.png"
+        9:
+          o: 0
+          v: 2
+        10:
+          o: 1
+          v: "meta03confirm.png"
+        11:
+          o: 0
+          v: 2
+        12:
+          o: 1
+          v: "zulu00total.png"
+
+  - name: "pioneer"
+    skip: True
+    chrome: True
+    type: 1
+    url: "https://pioneer.particle.network/en/point"
+    ets:
+      0:
+        o: 1
+        v: "pi00my_points.png"
+      1:
+        o: 4
+        v: -500
+      2:
+        o: 0
+        v: 1
+      3:
+        o: 1
+        v: "pi01open.png"
+      4:
+        o: 0
+        v: 3
+      ett: 100
+      rep:
+        0:
+          o: 1
+          v: "pi02send.png"
+        1:
+          o: 0
+          v: 1
+        2:
+          o: 1
+          v: "pi03address.png"
+        3:
+          o: 5
+          # v: "0x591377bAe319bCE7d689AB837B370d6775D91D94"
+          v: "0x2Eb6AE43E73EaD3Db8E8477e229b61FA80e38dB1"
+        4:
+          o: 1
+          v: "pi04amount.png"
+        5:
+          o: 5
+          v: "0.0001"
+        6:
+          o: 0
+          v: 2
+        7:
+          o: 1
+          v: "pi05send.png"
+        8:
+          o: 0
+          v: 8
+        9:
+          o: 1
+          v: "pi06send.png"
+        10:
+          o: 0
+          v: 3
+        11:
+          o: 1
+          v: "meta04sign.png"
+        12:
+          o: 0
+          v: 6
+        13:
+          o: 1
+          v: "pi07transaction.png"
+        14:
+          o: 7
+          v: "ESC"
+        15:
+          o: 0
+          v: 6
+        fail:
+          0:
+            o: 7
+            v: "ESC"
+          1:
+            o: 1
+            v: "pi09return.png"
+          2:
+            o: 7
+            v: "ESC"

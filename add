@@ -6,4 +6,5 @@ git add -f *.sh
 git add -f *.vbs
 git add -f script/*
 git add -f airdrop/*.py
+git add -f airdrop/auto/*
 git add -f airdrop/*Dockerfile
