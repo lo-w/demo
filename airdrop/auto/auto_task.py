@@ -112,12 +112,11 @@ def execute_step(o, v, s):
 def execute_task(ets):
     tc = len(ets.keys()) if ets else 1
     rep = ets.get('rep')
+    fail = ets.get("fail")
     if rep:
         tc = tc - 2
-    fail = ets.get("fail")
     if fail:
         tc = tc - 1
-
     for i in range (tc):
         es = ets.get(i)
         if not es:
@@ -143,9 +142,7 @@ def execute_task(ets):
             result = execute_task(rep)
             if not result:
                 print("repeat task failed")
-                if not fail:
-                    return False
-                execute_task(fail)
+                execute_task(rep.get('fail'))
                 continue
             repeat_times = repeat_times - 1
             print("left %s times" % str(repeat_times))
