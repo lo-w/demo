@@ -143,6 +143,8 @@ def execute_task(ets):
             result = execute_task(rep)
             if not result:
                 print("repeat task failed")
+                if not fail:
+                    return False
                 execute_task(fail)
                 continue
             repeat_times = repeat_times - 1
