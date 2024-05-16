@@ -36,7 +36,7 @@ def get_chrome_path(chrome):
         if chrome:
             cpath = '/usr/bin/google-chrome'
         else:
-            cpath = '/usr/bin/microsofe-edge-stable'
+            cpath = '/usr/bin/microsoft-edge-stable'
     return cpath + ' %s' if os.path.exists(cpath) else None
 
 def open_url(cpath, url):
@@ -76,7 +76,8 @@ def validate_step(o, v):
             return True
     return False
 
-def get_location(v, retry_times=4):
+def get_location(v, r):
+    retry_times = r if r else 4
     for _ in range(retry_times):
         try:
             location = pyautogui.locateCenterOnScreen(os.path.join(cur_path, v), confidence=confidence)
@@ -86,13 +87,13 @@ def get_location(v, retry_times=4):
     print("cannot get image location")
     return None
 
-def execute_step(o, v, s):
+def execute_step(o, v, s, r):
     if o == 0:
         # print("sleep for %s seconds" % v)
         mi = v-2 if v >2 else 0
         sleep(round(random.uniform(mi, v),2))
     elif 0 < o < 4 or o == 6:
-        location = get_location(v)
+        location = get_location(v, r)
         if location:
             mouse(location, o)
             return True
@@ -102,7 +103,9 @@ def execute_step(o, v, s):
         pyautogui.scroll(v)
     elif o == 5:
         pyperclip.copy(v)
+        sleep(round(random.uniform(1, 2),2))
         pyautogui.hotkey('ctrl','v')
+        sleep(round(random.uniform(1, 2),2))
     elif o == 7:
         pyautogui.hotkey(v)
     else:
@@ -125,23 +128,29 @@ def execute_task(ets):
         o = es.get('o')
         v = es.get('v')
         s = es.get('s')
+        r = es.get('r')
         vs = validate_step(o, v)
         if not vs:
             print("validate failed...")
             return False
         print("start step: ", es)
-        result = execute_step(o, v, s)
+        result = execute_step(o, v, s, r)
         if not result:
             return False
         print("finish step...")
 
     if rep:
-        repeat_times = ets.get("ett")
         print("start repeat tasks...")
+        repeat_times = ets.get("ett")
+        failed_count = 15
         while True:
             result = execute_task(rep)
             if not result:
-                print("repeat task failed")
+                print("repeat task failed...")
+                failed_count = failed_count - 1
+                if failed_count < 1:
+                    print("too many failed try...")
+                    return False
                 execute_task(rep.get('fail'))
                 continue
             repeat_times = repeat_times - 1
