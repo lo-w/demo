@@ -142,7 +142,7 @@ def execute_task(ets):
     if rep:
         print("start repeat tasks...")
         repeat_times = ets.get("ett")
-        failed_count = 15
+        failed_count = 10
         while True:
             result = execute_task(rep)
             if not result:
