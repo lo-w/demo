@@ -10,16 +10,36 @@ pip install opencv-python -i https://pypi.tuna.tsinghua.edu.cn/simple
 '''
 import os
 import time
+import yaml
 import random
 import platform
 import webbrowser
-import yaml
 import pyperclip
 import pyautogui
+import logging
+from logging import handlers
 
+CUR_DIR             = os.path.dirname(os.path.abspath(__file__))
+LOG_DIR             = os.path.join(CUR_DIR, "./logs/")
+LOG_NAME            = os.path.splitext(os.path.basename(__file__))[0]
+confidence          = 0.9
 
-cur_path        = os.path.dirname(os.path.realpath(__file__))
-confidence      = 0.9
+def check_path(c_path):
+    if not os.path.isdir(c_path):
+        os.makedirs(c_path)
+
+check_path(LOG_DIR)
+log_handler = handlers.TimedRotatingFileHandler(filename=LOG_DIR + LOG_NAME, backupCount=5)
+log_handler.suffix = "%Y%m%d"
+formatter = logging.Formatter(
+    '%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s',
+    '%a, %d %b %Y %H:%M:%S'
+)
+log_handler.setFormatter(formatter)
+logger = logging.getLogger()
+logger.addHandler(log_handler)
+logger.setLevel(logging.INFO)
+
 
 def get_chrome_path(chrome):
     pf = platform.system()
@@ -67,7 +87,7 @@ def validate_step(o, v):
         if o == 0:
             return True
         elif 0 < o < 4:
-            return True if os.path.exists(os.path.join(cur_path, v)) else False
+            return True if os.path.exists(os.path.join(CUR_DIR, v)) else False
         elif o == 4:
             return True if isinstance(v, int) else False
         elif o == 5:
@@ -80,11 +100,11 @@ def get_location(v, r):
     retry_times = r if r else 4
     for _ in range(retry_times):
         try:
-            location = pyautogui.locateCenterOnScreen(os.path.join(cur_path, v), confidence=confidence)
+            location = pyautogui.locateCenterOnScreen(os.path.join(CUR_DIR, v), confidence=confidence)
             return location
         except:
             sleep(2)
-    print("cannot get image location")
+    logger.error("cannot get image location")
     return None
 
 def execute_step(o, v, s, r):
@@ -123,7 +143,7 @@ def execute_task(ets):
     for i in range (tc):
         es = ets.get(i)
         if not es:
-            print("get execute task failed...")
+            logger.error("get execute task failed...")
             return False
         o = es.get('o')
         v = es.get('v')
@@ -131,13 +151,13 @@ def execute_task(ets):
         r = es.get('r')
         vs = validate_step(o, v)
         if not vs:
-            print("validate failed...")
+            logger.error("validate failed...")
             return False
-        print("start step: ", es)
+        logger.info("start step: ", es)
         result = execute_step(o, v, s, r)
         if not result:
             return False
-        print("finish step...")
+        # print("finish step...")
 
     if rep:
         print("start repeat tasks...")
@@ -146,10 +166,10 @@ def execute_task(ets):
         while True:
             result = execute_task(rep)
             if not result:
-                print("repeat task failed...")
+                logger.error("repeat task failed...")
                 failed_count = failed_count - 1
                 if failed_count < 1:
-                    print("too many failed try...")
+                    logger.error("too many failed try...")
                     return False
                 execute_task(rep.get('fail'))
                 continue
@@ -167,7 +187,6 @@ def perform_tasks(tasks):
         name = task.get("name")
         et = task.get("type")
         ets = task.get("ets")
-        
         print("started the task: ", name)
         if et:
             cpath = get_chrome_path(task.get("chrome"))
@@ -191,7 +210,7 @@ def perform_tasks(tasks):
 def get_tasks(task_yaml):
     task_yaml = task_yaml if task_yaml else "task.yml"
     tasks = {}
-    task_file_path = os.path.join(cur_path, task_yaml)
+    task_file_path = os.path.join(CUR_DIR, task_yaml)
     if os.path.exists(task_file_path):
         with open(task_file_path, 'r', encoding='UTF-8') as f:
             task_text = f.read()
@@ -202,6 +221,8 @@ def get_tasks(task_yaml):
 if __name__ == '__main__':
     tasks = get_tasks("")
     if tasks:
+        # import json
+        # print(json.dumps(tasks))
         perform_tasks(tasks)
     else:
         print("no task need to execute, exit!")
