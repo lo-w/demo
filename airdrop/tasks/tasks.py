@@ -35,38 +35,46 @@ from selenium.webdriver.common.action_chains import ActionChains
 
 
 headers          = {'Content-Type': 'application/json'}
-cur_path         = os.path.dirname(os.path.realpath(__file__))
 confidence       = 0.95
 
 BIT_URL          = "http://127.0.0.1:54345"
 RLIST            = [",", "-"]
-OFFER_URL        = ""
-DRIVER_URL       = "https://chromedriver.storage.googleapis.com/"
-DRIVER_VERSION   = "112.0.5615.49"
 JSON_ID          = '{"id": "%s"}'
-YEAR_PRE         = '20'
-USER_PASS        = "]z6x!GGx!+nUvC]f"
-WEB_PAGE_TIMEOUT = 60
-INIT_FLAG        = False
-OFFER_TEST       = False
+WEB_PAGE_TIMEOUT = 30
 INPUT_TIME       = 0.1
 MINS             = 0.5
 MAXS             = 2.0
-WINDOWW          = 3
-WINDOWH          = 1
 CHROME_EXTENSION = "chrome-extension://%s/%s.html"
 
 CUR_DIR          = os.path.dirname(os.path.abspath(__file__))
 CONFIG_DB_PATH   = os.path.join(CUR_DIR, "config.db")
-DIRECTORY        = os.path.join(CUR_DIR, "./logs/")
+LOG_DIR          = os.path.join(CUR_DIR, "./logs/")
 LOG_NAME         = os.path.splitext(os.path.basename(__file__))[0]
 
+def check_path(c_path):
+    if not os.path.isdir(c_path):
+        os.makedirs(c_path)
+
+check_path(LOG_DIR)
+log_handler = handlers.TimedRotatingFileHandler(filename=LOG_DIR + LOG_NAME, backupCount=5)
+log_handler.suffix = "%Y%m%d"
+formatter = logging.Formatter(
+    '%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s',
+    '%a, %d %b %Y %H:%M:%S'
+)
+log_handler.setFormatter(formatter)
+logger = logging.getLogger()
+logger.addHandler(log_handler)
+logger.setLevel(logging.INFO)
 
 def sleep(sec=1):
     time.sleep(sec)
 
-def get_sleep(mi, mx):
+def get_round(mi, mx):
     return round(random.uniform(mi, mx),2)
+
+def get_sleep(mi, mx):
+    return get_round(mi, mx)
 
 def getMWH(pf):
     if "Windows" in pf:
@@ -87,7 +95,7 @@ def getMWH(pf):
 def mouse(lo, o):
     ct = 1
     lr = "left"
-    dura = round(random.uniform(0.5, 1),2)
+    dura = get_round(0.5, 1)
     if o == 2:
         ct = 2
     elif o == 3:
@@ -103,7 +111,7 @@ def validate_step(o, v):
         if o == 0:
             return True
         elif 0 < o < 4:
-            return True if os.path.exists(os.path.join(cur_path, v)) else False
+            return True if os.path.exists(os.path.join(CUR_DIR, v)) else False
         elif o == 4:
             return True if isinstance(v, int) else False
         elif o == 5:
@@ -116,18 +124,17 @@ def get_location(v, r):
     retry_times = r if r else 4
     for _ in range(retry_times):
         try:
-            location = pyautogui.locateCenterOnScreen(os.path.join(cur_path, v), confidence=confidence)
+            location = pyautogui.locateCenterOnScreen(os.path.join(CUR_DIR, v), confidence=confidence)
             return location
         except:
             sleep(2)
-    print("cannot get image location")
+    logger.error("cannot get image location")
     return None
 
 def execute_step(o, v, s, r):
     if o == 0:
-        # print("sleep for %s seconds" % v)
-        mi = v-2 if v >2 else 0
-        sleep(round(random.uniform(mi, v),2))
+        mi = v-2 if v > 2 else 0
+        sleep(get_round(mi, v))
     elif 0 < o < 4 or o == 6:
         location = get_location(v, r)
         if location:
@@ -138,9 +145,9 @@ def execute_step(o, v, s, r):
         pyautogui.scroll(v)
     elif o == 5:
         pyperclip.copy(v)
-        sleep(round(random.uniform(1, 2),2))
+        sleep(get_round(1, 2))
         pyautogui.hotkey('ctrl','v')
-        sleep(round(random.uniform(1, 2),2))
+        sleep(get_round(1, 2))
     elif o == 7:
         pyautogui.hotkey(v)
     else:
@@ -158,7 +165,7 @@ def execute_mouse_task(ets):
     for i in range (tc):
         es = ets.get(str(i))
         if not es:
-            print("get execute task failed...")
+            logger.error("get execute task failed...")
             return
         o = es.get('o')
         v = es.get('v')
@@ -166,31 +173,32 @@ def execute_mouse_task(ets):
         r = es.get('r')
         vs = validate_step(o, v)
         if not vs:
-            print("validate failed...")
+            logger.error("validate failed...")
             return
-        print("start step: ", es)
+        logger.info("start step: ", es)
         result = execute_step(o, v, s, r)
         if not result:
             return
-        print("finish step...")
+        logger.info("finish step...")
 
     if rep:
-        print("start repeat tasks...")
+        print("start repeat tasks...")                  
         repeat_times = ets.get("ett")
         failed_count = 10
         while True:
             result = execute_mouse_task(rep)
             if not result:
-                print("repeat task failed...")
                 failed_count = failed_count - 1
+                logger.info("repeat task failed, left %s..." % failed_count)
                 if failed_count < 1:
-                    print("too many failed try...")
+                    logger.error("too many failed try...")
                     return False
                 execute_mouse_task(rep.get('fail'))
                 continue
             repeat_times = repeat_times - 1
             print("left %s times" % str(repeat_times))
             if repeat_times < 1:
+                logger.info("repeat task finished...")
                 break
             sleep(2)
     return True
@@ -201,9 +209,7 @@ def perform_mouse_tasks(tasks):
             continue
         name = task.get("name")
         ets = task.get("ets")
-        
         print("started the task: ", name)
-
         result = execute_mouse_task(ets)
         if not result:
             print("execute task %s failed, try next task!" % name)
@@ -231,13 +237,11 @@ def wait_for_element(driver, findby, findvalue, max_attempts=3, eles=False):
             time.sleep(get_sleep(MINS, MAXS))
     raise Exception(f"cannot find the element with value: %s" % findvalue)
 
-
 def get_proxy():
     proxy = {
         "socks5": "192.168.1.12:10808"
     }
     return proxy
-
 
 def get_proxy_by_user(user):
     city = user.get("city")
@@ -297,16 +301,21 @@ def exe_tasks(task_driver, tasks, hc, extension, wallet=False):
     for task in tasks:
         findby = task.get('findby')
         findvalue = task.get('findvalue')
+        operation = task.get('operation')
+
+
+
+
         task_ele = wait_for_element(task_driver, findby, findvalue)
         if not task_ele:
             print("ele not found for %s" % findvalue)
             # logger.error("running task:%s failed with get element failed, %s" % (offer_uuid, findvalue))
             return
-        operation = task.get('operation')
         mapto = task.get('mapto')
         val = ""
         if mapto:
             val = mapto.strip()
+
         if operation == 'click':
             try:
                 task_ele.click()
@@ -337,13 +346,13 @@ def exe_tasks(task_driver, tasks, hc, extension, wallet=False):
 
     return True
 
-def login_wallet_task(profile_driver, profile_id, extension):
-    print("login to wallet")
+def login_wallet_task(task_driver, profile_id, extension):
+    logger.info("login to wallet %s..." % extension)
     ### name id version
     ext_id = extension.get("id")
     ext_tasks = get_tasks_by_id(profile_id, ext_id)
 
-    profile_driver.get(CHROME_EXTENSION % (ext_id, extension.get("home")))
+    task_driver.get(CHROME_EXTENSION % (ext_id, extension.get("home")))
     sleep(4)
     task_resp = perform_mouse_tasks(ext_tasks)
 
@@ -351,10 +360,9 @@ def login_wallet_task(profile_driver, profile_id, extension):
         return False
     return True
 
-def login_wallet(profile_driver, extensions, profile_id):
+def login_wallet(task_driver, extensions, profile_id):
     for extension in extensions:
-        print(extension)
-        log_status = login_wallet_task(profile_driver, profile_id, extension)
+        log_status = login_wallet_task(task_driver, profile_id, extension)
         if not log_status:
             return False
     return True
@@ -389,10 +397,12 @@ def get_tasks():
     ]
 
 def get_profiles():
-    return [{
-        "id": "8daa7a1341634a1db8bb2e3fd3aa8289",
-        "path": "C:/Users/lo/AppData/Local/Google/Chrome/User Data/Profile 1"
-    }]
+    return [
+        {
+            "id": "8daa7a1341634a1db8bb2e3fd3aa8289",
+            "path": "C:/Users/lo/AppData/Local/Google/Chrome/User Data/Profile 1"
+        }
+    ]
 
 def get_extensions():
     return [
@@ -405,6 +415,23 @@ def get_extensions():
 
 def get_proxy_by_profile(profile_id):
     return "socks://192.168.1.13:10808"
+
+def run_tasks_by_profile(task_driver, tasks, hc):
+    for task in tasks:
+        task_url = task.get('url')
+        extension = task.get('extension')
+
+        task_driver.get(task_url)
+        task_driver.set_page_load_timeout(WEB_PAGE_TIMEOUT)
+        # wait for the element load
+        sleep(3)
+        perform_mouse_tasks([{"name":"zulu","ets":{"0":{"o":1,"v":"zulu_select.png"}}}])
+        # with codecs.open("./error.html", "w", "utf-8") as hf:
+        #     hf.write(profile_driver.page_source)
+        for _ in range(2):
+            exe_tasks(task_driver, task.get('tasks'), hc, extension, True)
+            # perform_mouse_tasks([{"name":"meta","ets":{"0":{"o":1,"v":"meta_confirm.png"}}}])
+        time.sleep(2000)
 
 def start_web():
     profile_resp = get_bit_profiles()
@@ -453,23 +480,7 @@ def start_web():
         # if not log_social:
         #     print("login social failed")
         #     continue
-
-
-        for task in tasks:
-            task_url = task.get('url')
-            extension = task.get('extension')
-            # print(task)
-            profile_driver.get(task_url)
-            profile_driver.set_page_load_timeout(WEB_PAGE_TIMEOUT)
-            # wait for the element load
-            sleep(3)
-            perform_mouse_tasks([{"name":"zulu","ets":{"0":{"o":1,"v":"zulu_select.png"}}}])
-            # with codecs.open("./error.html", "w", "utf-8") as hf:
-            #     hf.write(profile_driver.page_source)
-            for _ in range(2):
-                exe_tasks(profile_driver, task.get('tasks'), hc, extension, True)
-                # perform_mouse_tasks([{"name":"meta","ets":{"0":{"o":1,"v":"meta_confirm.png"}}}])
-            time.sleep(2000)
+        run_tasks_by_profile(profile_driver, tasks, hc)
 
 
 def pre_check():
