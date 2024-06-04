@@ -153,7 +153,7 @@ def execute_task(ets):
         if not vs:
             logger.error("validate failed...")
             return False
-        logger.info("start step: ", es)
+        logger.info("start step: %s" % es)
         result = execute_step(o, v, s, r)
         if not result:
             return False
@@ -174,7 +174,7 @@ def execute_task(ets):
                 execute_task(rep.get('fail'))
                 continue
             repeat_times = repeat_times - 1
-            print("left %s times" % str(repeat_times))
+            logger.info("left %s times" % str(repeat_times))
             if repeat_times < 1:
                 break
             sleep(2)
@@ -191,21 +191,21 @@ def perform_tasks(tasks):
         if et:
             cpath = get_chrome_path(task.get("chrome"))
             if not cpath:
-                print("no chrome/edge found in system, try next task!")
+                logger.error("no chrome/edge found in system, try next task!")
                 continue
             url = task.get("url")
             open_url(cpath, url)
 
         result = execute_task(ets)
         if not result:
-            print("execute task failed, try next task!", name)
+            logger.error("execute task: %s failed, try next task!" % name)
             continue
 
         if et:
-            print("closing the tab...")
+            logger.info("closing the tab...")
             pyautogui.hotkey('ctrl', 'w')
 
-        print("finished the task: ", name)
+        logger.info("finished the task: ", name)
 
 def get_tasks(task_yaml):
     task_yaml = task_yaml if task_yaml else "task.yml"
@@ -225,4 +225,4 @@ if __name__ == '__main__':
         # print(json.dumps(tasks))
         perform_tasks(tasks)
     else:
-        print("no task need to execute, exit!")
+        logger.error("no task need to execute, exit!")
