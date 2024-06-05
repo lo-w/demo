@@ -205,7 +205,7 @@ def perform_tasks(tasks):
             logger.info("closing the tab...")
             pyautogui.hotkey('ctrl', 'w')
 
-        logger.info("finished the task: ", name)
+        logger.info("finished the task: %s" % name)
 
 def get_tasks(task_yaml):
     task_yaml = task_yaml if task_yaml else "task.yml"
