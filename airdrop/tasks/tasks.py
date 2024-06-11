@@ -102,9 +102,52 @@ def get_round(mi, mx):
 
 def wait_input():
     sleep(get_round(MINS, MAXS))
+<<<<<<< HEAD
 
 def wait_page_load():
     sleep(get_round(8, 10))
+=======
+
+def wait_page_load():
+    sleep(get_round(8, 10))
+
+class PostGressDB():
+    def __init__(self) -> None:
+        conf = self.load_config()
+        conn = self.connect(conf)
+        self.cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    def load_config(self, filename='database.ini', section='postgresql'):
+        parser = ConfigParser()
+        parser.read(get_cur_path(filename))
+        if not parser.has_section(section):
+            raise Exception('Section {0} not found in the {1} file'.format(section, filename))
+
+        # get section, default to postgresql
+        config = {}
+        params = parser.items(section)
+        for param in params:
+            config[param[0]] = param[1]
+        return config
+
+    def connect(self, config):
+        """ Connect to the PostgreSQL database server """
+        try:
+            # connecting to the PostgreSQL server
+            with psycopg2.connect(**config) as conn:
+                logger.debug("success connected to the PostgreSQL server...")
+                return conn
+        except (psycopg2.DatabaseError, Exception) as error:
+            print(error)
+
+    def sql_info(self, sql, param=None, query=True):
+        self.cur.execute(sql, param) if param else self.cur.execute(sql)
+        return self.cur.fetchall() if query else self.cur.lastrowid
+
+class MouseTask():
+    pass
+
+>>>>>>> 750820e6bc3f6a260e7053fd3ef2e3504598c50b
 
 def getMWH(pf):
     if "Windows" in pf:
@@ -122,6 +165,143 @@ def getMWH(pf):
             return 1920, 1080
     return check_output(command, shell=True, encoding="utf-8").strip().split("x")
 
+<<<<<<< HEAD
+=======
+def mouse(lo, o):
+    ct = 1
+    lr = "left"
+    dura = get_round(MINS, MAXS)
+    if o == 2:
+        ct = 2
+    elif o == 3:
+        lr = "right"
+    if o == 6:
+        pyautogui.moveTo(x=lo.x, y=lo.y, duration=dura)
+    else:
+        pyautogui.click(lo.x,lo.y,clicks=ct,interval=dura,duration=dura,button=lr)
+    sleep(1)
+
+def validate_step(o, v):
+    if isinstance(o, int):
+        if o == 0:
+            return True
+        elif 0 < o < 4:
+            return True if os.path.exists(get_cur_path(v)) else False
+        elif o == 4:
+            return True if isinstance(v, int) else False
+        elif o == 5:
+            return True if isinstance(v, str) else False
+        elif  o == 6 or o == 7:
+            return True
+    return False
+
+def get_location(v, r):
+    retry_times = r if r else 4
+    for _ in range(retry_times):
+        try:
+            location = pyautogui.locateCenterOnScreen(get_cur_path(v), confidence=confidence)
+            return location
+        except:
+            sleep(2)
+    logger.error("cannot get image location")
+    return None
+
+def execute_step(o, v, s, r):
+    if o == 0:
+        mi = v-2 if v > 2 else 0
+        sleep(get_round(mi, v))
+    elif 0 < o < 4 or o == 6:
+        location = get_location(v, r)
+        if location:
+            mouse(location, o)
+            return True
+        return True if s else False
+    elif o == 4:
+        pyautogui.scroll(v)
+    elif o == 5:
+        pyperclip.copy(v)
+        wait_input()
+        pyautogui.hotkey('ctrl','v')
+        wait_input()
+    elif o == 7:
+        pyautogui.hotkey(v)
+    else:
+        return False
+    return True
+
+def execute_mouse_task(ets):
+    tc = len(ets.keys()) if ets else 1
+    rep = ets.get('rep')
+    fail = ets.get("fail")
+    if rep:
+        tc = tc - 2
+    if fail:
+        tc = tc - 1
+    for i in range (tc):
+        es = ets.get(str(i))
+        if not es:
+            logger.error("get execute task failed...")
+            return
+        o = es.get('o')
+        v = es.get('v')
+        s = es.get('s')
+        r = es.get('r')
+        vs = validate_step(o, v)
+        if not vs:
+            logger.error("validate failed...")
+            return
+        logger.info("start step: ", es)
+        result = execute_step(o, v, s, r)
+        if not result:
+            return
+        logger.info("finish step...")
+
+    if rep:
+        print("start repeat tasks...")
+        repeat_times = ets.get("ett")
+        failed_count = 10
+        while True:
+            result = execute_mouse_task(rep)
+            if not result:
+                failed_count = failed_count - 1
+                logger.info("repeat task failed, left %s..." % failed_count)
+                if failed_count < 1:
+                    logger.error("too many failed try...")
+                    return False
+                execute_mouse_task(rep.get('fail'))
+                continue
+            repeat_times = repeat_times - 1
+            print("left %s times" % str(repeat_times))
+            if repeat_times < 1:
+                logger.info("repeat task finished...")
+                break
+            sleep(2)
+    return True
+
+def perform_mouse_tasks(tasks):
+    for task in tasks:
+        if task.get("skip"):
+            continue
+        name = task.get("name")
+        ets = task.get("ets")
+        print("started the task: ", name)
+        result = execute_mouse_task(ets)
+        if not result:
+            print("execute task %s failed, try next task!" % name)
+            return
+
+        print("finished the task: ", name)
+    return True
+
+
+
+def get_proxy():
+    proxy = {
+        "socks5": "192.168.1.12:10808"
+    }
+    return proxy
+
+>>>>>>> 750820e6bc3f6a260e7053fd3ef2e3504598c50b
 def get_proxy_by_user(user):
     city = user.get("city")
     state = user.get("state")
@@ -141,11 +321,14 @@ def get_user_by_profile(profile_id):
     # twitter & telegram & discord & metamask etc.
     pass
 
+<<<<<<< HEAD
 def get_proxy():
     proxy = {
         "socks5": "192.168.1.12:10808"
     }
     return proxy
+=======
+>>>>>>> 750820e6bc3f6a260e7053fd3ef2e3504598c50b
 
 def get_tasks_by_id(profile_id, ext_id):
     val = "y:KHF~Mu2*3#^c>G"
@@ -157,6 +340,7 @@ def get_tasks_by_id(profile_id, ext_id):
     elif ext_id == "ppbibelpcjmhbdihakflkdcoccbgbkpo":
         return [{"name":"meta","ets":{"0":{"o":1,"v":"unisat_pass.png"},"1":{"o":5,"v":val},"2":{"o":1,"v":"unisat_login.png"}}}]
 
+<<<<<<< HEAD
 
 class PostGressDB():
     def __init__(self) -> None:
@@ -326,6 +510,8 @@ class MouseTask():
 
 
 
+=======
+>>>>>>> 750820e6bc3f6a260e7053fd3ef2e3504598c50b
 class BitBrowser():
     def open_browser(self, id):    # 直接指定ID打开窗口，也可以使用 createBrowser 方法返回的ID
         return requests.post(f"{BIT_URL}/browser/open", data=JSON_ID % id, headers=headers).json()
@@ -355,7 +541,10 @@ class SeliniumTask():
     def __init__(self) -> None:
         self.pg = PostGressDB()
         self.bt = BitBrowser()
+<<<<<<< HEAD
         self.mt = MouseTask()
+=======
+>>>>>>> 750820e6bc3f6a260e7053fd3ef2e3504598c50b
         self.cur = self.pg.cur
         self.driver = None
         self.wait = None
@@ -428,7 +617,11 @@ class SeliniumTask():
 
                 except Exception as e:
                     logger.error(e)
+<<<<<<< HEAD
                     wait_page_load()
+=======
+                    sleep(10)
+>>>>>>> 750820e6bc3f6a260e7053fd3ef2e3504598c50b
                     # if "Other element would receive the click" in e:
                     #     with codecs.open("./error.html", "w", "utf-8") as hf:
                     #         hf.write(task_driver.page_source)
@@ -458,7 +651,11 @@ class SeliniumTask():
 
         self.driver.get(CHROME_EXTENSION % (ext_id, extension.get("home")))
         sleep(4)
+<<<<<<< HEAD
         task_resp = self.mt.perform_mouse_tasks(ext_tasks)
+=======
+        task_resp = perform_mouse_tasks(ext_tasks)
+>>>>>>> 750820e6bc3f6a260e7053fd3ef2e3504598c50b
 
         if not task_resp:
             return
