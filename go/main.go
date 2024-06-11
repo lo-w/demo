@@ -5,6 +5,8 @@ import (
 	"os"
 	"time"
 
+	"sync/atomic"
+
 	"gopkg.in/ini.v1"
 )
 
@@ -37,37 +39,69 @@ type CFGI struct {
 	data    *Data
 }
 
-func getCFG(ciChan chan<- CFGI) *ini.Section {
-	ci := CFGI{}
-	for {
-		cfg, err := ini.Load("ticket.ini")
-		if err != nil {
-			fmt.Printf("Fail to read file: %v", err)
-			os.Exit(1)
-		}
-		cfg_default := cfg.Section("DEFAULT")
+var conf atomic.Value
 
-		// aura_context := cfg_default.Key("AURA_CONTEXT")
-		// aura_token := cfg_default.Key("AURA_TOKEN")
-		ci.cfg = cfg_default
-		ciChan <- ci
+func readConfig() (CFGI, error) {
+	ci := CFGI{}
+	cfg, err := ini.Load("ticket.ini")
+	if err != nil {
+		fmt.Printf("Fail to read file: %v", err)
+		os.Exit(1)
+	}
+	cfg_default := cfg.Section("DEFAULT")
+	// aura_context := cfg_default.Key("AURA_CONTEXT")
+	// aura_token := cfg_default.Key("AURA_TOKEN")
+	ci.cfg = cfg_default
+	return ci, nil
+}
+
+func updateConfig() {
+	for {
+		newConfig, err := readConfig()
+		if err != nil {
+			fmt.Println("Error reading config:", err)
+			time.Sleep(time.Second * 10)
+			continue
+		}
+		conf.Store(newConfig)
+		fmt.Println("Config updated")
 		time.Sleep(time.Second * 10)
 	}
 }
 
-func main() {
-	ciChan := make(chan CFGI, 2)
-	go getCFG(ciChan)
-	// cfg_default := {}
+func getCases() {
 	for {
-		ci := <-ciChan
-		cfg_default := ci.cfg
+		curConfig := conf.Load().(CFGI)
+		cfg_default := curConfig.cfg
+		fmt.Println("Using config:")
 		fmt.Println(cfg_default.Key("MAX_REFRESH"))
 		fmt.Println(cfg_default.Key("MIN_REFRESH"))
 		fmt.Println(cfg_default.Key("ASSIGN_QUEUE"))
-		// time.Sleep(time.Second * 20)
+		// fmt.Println(currentConfig)
+		time.Sleep(time.Second * 3)
 	}
-	// fmt.Println(cfg_default.Key("MAX_REFRESH"))
-	// fmt.Println(cfg_default.Key("MIN_REFRESH"))
-	// fmt.Println(cfg_default.Key("ASSIGN_QUEUE"))
+}
+
+func filterCases() {
+
+}
+
+func assignCase() {
+
+}
+
+func main() {
+
+	initialConfig, err := readConfig()
+	if err != nil {
+		fmt.Println("Error reading initial config:", err)
+		return
+	}
+	conf.Store(initialConfig)
+	go updateConfig()
+	go getCases()
+	go filterCases()
+	go assignCase()
+
+	select {}
 }
