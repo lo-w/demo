@@ -51,7 +51,8 @@ extensions_select_sql = "SELECT * FROM extensions;"
 
 tasks_select_sql      = "SELECT distinct name      FROM tasks;"
 task_sub_select_sql   = "SELECT name,subtask,times FROM tasks where name=%s order by id;"
-task_steps_sql        = "SELECT *                  FROM tasks where name=%s and subtask=%s and times=%s order by id;"
+task_pre_steps_sql    = "SELECT *                  FROM tasks where name=%s and times=0 order by id;"
+task_steps_sql        = "SELECT *                  FROM tasks where name=%s and subtask=%s order by id;"
 input_select_sql      = "select val from inputs where profile=%s and task=%s;"
 
 
@@ -130,7 +131,7 @@ class PostGressDB(InitConf):
     def __init__(self) -> None:
         conf = self.load_config()
         conn = self.connect(conf)
-        self.cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        self.cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) if conn else None
 
     def load_config(self, filename='database.ini', section='postgresql'):
         parser = ConfigParser()
@@ -154,6 +155,7 @@ class PostGressDB(InitConf):
                 return conn
         except (psycopg2.DatabaseError, Exception) as e:
             self.logger.error("failed connect to DB with error: %s" % e)
+            return
 
     def sql_info(self, sql, param=None, query=True):
         """
@@ -360,6 +362,16 @@ class BitBrowser(InitConf):
         BIT_URL = self.get_bit_url()
         return BIT_URL or False
 
+class ChromeBrowser(InitConf):
+    def get_profiles(self):
+        return [
+            {
+                "id": "8daa7a1341634a1db8bb2e3fd3aa8289",
+                "path": "C:/Users/lo/AppData/Local/Google/Chrome/User Data/Profile 1"
+            }
+        ]
+
+
 class Wallets(MouseTask):
     ### https://stackoverflow.com/questions/76252205/runtime-callfunctionon-threw-exception-error-lavamoat-property-proxy-of-gl
     ### https://github.com/MetaMask/metamask-extension
@@ -371,6 +383,9 @@ class Wallets(MouseTask):
     def __init__(self) -> None:
         self.driver = None
         self.wait = None
+        self.profile_id = ""
+        self.ori_window = ""
+        self.new_window = ""
 
     def get_tasks_by_id(self, profile_id, ext_id):
         val = "y:KHF~Mu2*3#^c>G"
@@ -403,6 +418,31 @@ class Wallets(MouseTask):
             if not log_status:
                 return
         return True
+
+    def get_confirm_handle(self):
+        for handle in self.driver.window_handles:
+            self.driver.switch_to.window(handle)
+            self.logger.info("current handle: %s, title %s" % (handle, self.driver.title))
+            if self.driver.title == 'MetaMask':
+                break
+
+    def handle_wallet(self, step):
+        wallet_operation = step.get('findby')
+        wallet_id = step.get('findvalue')
+        # self.logger.info("wait for a moment to let %s load..." % operation)
+        if wallet_operation == "confirm":
+            self.get_confirm_handle()
+        elif wallet_operation == "sign":
+            pass
+        elif wallet_operation == "switch":
+            pass
+        
+        self.logger.info("switch back to task tab...")
+        self.driver.switch_to.window(self.new_window)
+
+
+        # with codecs.open("./2.html", "w", "utf-8") as hf:
+        #     hf.write(self.driver.page_source)
 
 
 class SeliniumTask(PostGressDB, BitBrowser, Wallets):
@@ -448,10 +488,10 @@ class SeliniumTask(PostGressDB, BitBrowser, Wallets):
             return unicodedata.normalize('NFKD', val).strip()
         return ""
 
-    def wait_for_element(self, findby, findvalue, max_attempts=4):
+    def wait_for_element(self, findby, findvalue, max_attempts=4, eles=False):
         for _ in range(max_attempts):
             try:
-                return self.driver.find_element(findby, findvalue)
+                return self.driver.find_elements(findby, findvalue) if eles else self.driver.find_element(findby, findvalue)
             except Exception as e:
                 self.logger.debug("retry get value again: %s" % findvalue)
                 self.logger.info("error message: %s" % e)
@@ -479,14 +519,6 @@ class SeliniumTask(PostGressDB, BitBrowser, Wallets):
     def get_extensions(self):
         return self.sql_info(extensions_select_sql)
 
-    def get_profiles(self):
-        return [
-            {
-                "id": "8daa7a1341634a1db8bb2e3fd3aa8289",
-                "path": "C:/Users/lo/AppData/Local/Google/Chrome/User Data/Profile 1"
-            }
-        ]
-
     def get_proxy_by_profile(self, profile_id):
         return "socks://192.168.1.13:10808"
 
@@ -498,7 +530,6 @@ class SeliniumTask(PostGressDB, BitBrowser, Wallets):
         findvalue = step.get('findvalue')
         operation = step.get('operation')
         ### need to switch to tasks windows
-        self.driver.switch_to.window(self.new_window)
 
         if operation == 'url':
             self.driver.get(findvalue)
@@ -506,16 +537,10 @@ class SeliniumTask(PostGressDB, BitBrowser, Wallets):
             self.wait_page_load()
             return True
         elif operation == 'wallet':
-            self.logger.info("wait for a moment to let %s load..." % operation)
-            self.wait_page_load()
-            for handle in self.driver.window_handles:
-                self.driver.switch_to.window(handle)
-                self.logger.info("current handle: %s, title %s" % (handle, self.driver.title))
-                if self.driver.title == 'MetaMask':
-                    break
-            # with codecs.open("./2.html", "w", "utf-8") as hf:
-            #     hf.write(self.driver.page_source)
-            operation = 'click'
+            res = self.handle_wallet(step)
+            if not res:
+                return
+            return True
 
         try:
             task_ele = self.wait_for_element(findby, findvalue)
@@ -548,6 +573,7 @@ class SeliniumTask(PostGressDB, BitBrowser, Wallets):
         else:
             self.logger.error("running step:%s failed with unsupported operation: %s" % (self.profile_id, operation))
             return
+
         self.logger.info("finish step: %s" % findvalue)
         self.sleep()
         return True
@@ -556,25 +582,50 @@ class SeliniumTask(PostGressDB, BitBrowser, Wallets):
         for step in steps:
             res = self.exe_step(step)
             if not res:
+                self.logger.error("execute step: %s failed...")
                 return
-
+        self.logger.info("all steps finished...")
         return True
 
     def exe_sub_tasks(self, task_sub_steps, task_name):
         ### to do shuffle sub task
+        ### zulu index 0
+        ### zulu swap  4
+        ### zulu add   1
         sub_task = ''
-        times = 1
+        times = 0
+
+        sub_list = []
         for st in task_sub_steps:
-            self.logger.debug("exe_sub_steps: %s" % st)
-            if st.get('subtask') == sub_task and st.get('times')==times:
+            if st.get('subtask') == sub_task or st.get('times')==0:
                 continue
             sub_task = st.get('subtask')
-            times = st.get('times')
-            task_steps = self.sql_info(task_steps_sql, (task_name, sub_task, times))
-            for _ in range(times):
-                res = self.exe_steps(task_steps)
-                if not res:
-                    return
+            self.logger.info("add subtask to list" % st)
+            sub_list.append((task_name, sub_task))
+
+        ### execute pre task
+        pre_sub_task = self.sql_info(task_steps_sql, (task_name,))
+        res = self.exe_steps(pre_sub_task)
+
+        ### 
+        for nst in self.get_random_items(sub_list):
+            task_steps = self.sql_info(task_steps_sql, nst)
+            for ts in task_steps:
+                sub_task = ts.get('subtask')
+                times = ts.get('times')
+                task_steps = self.sql_info(task_steps_sql, (task_name, sub_task, times))
+
+        # for st in task_sub_steps:
+        #     self.logger.debug("exe_sub_steps: %s" % st)
+        #     if st.get('subtask') == sub_task and st.get('times')==times:
+        #         continue
+        #     sub_task = st.get('subtask')
+        #     times = st.get('times')
+        #     task_steps = self.sql_info(task_steps_sql, (task_name, sub_task, times))
+        #     for _ in range(times):
+        #         res = self.exe_steps(task_steps)
+        #         if not res:
+        #             return
 
     def run_tasks_by_profile(self, tasks):
         ### random select task to execute
