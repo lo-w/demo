@@ -10,6 +10,7 @@ import os
 import json
 import time
 import uuid
+import pyotp
 import codecs
 import ctypes
 import psutil
@@ -54,20 +55,18 @@ task_steps_sql        = "SELECT *                  FROM tasks where name=%s and 
 input_select_sql      = "select val from inputs where profile=%s and task=%s;"
 
 
-
-
-RLIST            = [",", "-"]
-JSON_ID          = '{"id": "%s"}'
-WEB_PAGE_TIMEOUT = 30
-INPUT_TIME       = 0.1
-MINS             = 1.0
-MAXS             = 2.0
-CHROME_EXTENSION = "chrome-extension://%s/%s.html"
-
-
-
 class InitConf():
     def __init__(self) -> None:
+        self.pf = platform.system()
+
+        self.RLIST            = [",", "-"]
+        self.JSON_ID          = '{"id": "%s"}'
+        self.WEB_PAGE_TIMEOUT = 30
+        self.INPUT_TIME       = 0.1
+        self.MINS             = 1.0
+        self.MAXS             = 2.0
+        self.CHROME_EXTENSION = "chrome-extension://%s/%s.html"
+
         self.CUR_DIR          = os.path.dirname(os.path.abspath(__file__))
         self.LOG_DIR          = self.get_cur_path("./logs/")
         self.LOG_NAME         = os.path.splitext(os.path.basename(__file__))[0]
@@ -94,6 +93,11 @@ class InitConf():
         logger.setLevel(logging.INFO)
         return logger
 
+    def get_otp(self, secret):
+        # secret = 'MDANW36JHNV3EOBM'
+        totp = pyotp.TOTP(secret)
+        return totp.now()
+
     def sleep(self, sec=1):
         time.sleep(sec)
 
@@ -101,27 +105,26 @@ class InitConf():
         return round(random.uniform(mi, mx), 2)
 
     def wait_input(self):
-        self.sleep(self.get_round(MINS, MAXS))
+        self.sleep(self.get_round(self.MINS, self.MAXS))
 
     def wait_page_load(self):
         self.sleep(self.get_round(8, 10))
 
-    def getMWH(self, pf):
-        if "Windows" in pf:
+    def getMWH(self):
+        if "Windows" in self.pf:
             user32 = ctypes.windll.user32
             return user32.GetSystemMetrics(0), user32.GetSystemMetrics(1)
         else:
             from subprocess import check_output
-            if "Linux" in pf:
+            if "Linux" in self.pf:
                 # test in ubuntu
                 command = "xrandr | awk -F' ' '/\*/{print $1}'"
-            elif "MacOS" in pf:
+            elif "MacOS" in self.pf:
                 # test for python3 in catalina
                 command = "system_profiler SPDisplaysDataType | awk -F' ' '/Resolution/{print $2 \"x\" $4}'"
             else:
                 return 1920, 1080
         return check_output(command, shell=True, encoding="utf-8").strip().split("x")
-
 
 class PostGressDB(InitConf):
     def __init__(self) -> None:
@@ -149,12 +152,32 @@ class PostGressDB(InitConf):
             with psycopg2.connect(**config) as conn:
                 self.logger.debug("success connected to the PostgreSQL server...")
                 return conn
-        except (psycopg2.DatabaseError, Exception) as error:
-            print(error)
+        except (psycopg2.DatabaseError, Exception) as e:
+            self.logger.error("failed connect to DB with error: %s" % e)
 
     def sql_info(self, sql, param=None, query=True):
+        """
+        Execute SQL query and return the result.
+
+        Args:
+            sql (str): The SQL query to execute.
+            param (tuple, optional): The parameters to pass to the query.
+            query (bool, optional): Whether the query should return multiple rows.
+
+        Returns:
+            list or int: If query is True, returns a list of tuples containing the results. If query is False, returns the last inserted row id.
+        """
+        # execute the SQL query with the given parameters
         self.cur.execute(sql, param) if param else self.cur.execute(sql)
-        return self.cur.fetchall() if query else self.cur.lastrowid
+
+        # if the query is meant to return multiple rows,
+        # fetch all the rows and return them as a list
+        if query:
+            return self.cur.fetchall()
+        else:
+            # if the query is meant to return only the last inserted row id,
+            # return that value
+            return self.cur.lastrowid
 
 class MouseTask(InitConf):
     def __init__(self) -> None:
@@ -162,18 +185,39 @@ class MouseTask(InitConf):
         self.confidence = 0.9
 
     def mouse(self, lo, o):
+        """
+        Perform mouse operation based on the given parameters.
+
+        Args:
+            lo (pyautogui.Point): The location on the screen where the mouse operation should be performed.
+            o (int): The type of mouse operation to perform.
+
+                0: Wait for a specified duration.
+                1: Perform a left single click.
+                2: Perform a left double click.
+                3: Perform a right single click.
+                4: Scroll the screen.
+                5: Input a value.
+                6: Move the mouse to a specified location.
+
+        Returns:
+            None
+        """
+        # Initialize the number of clicks and the mouse button.
         ct = 1
         lr = "left"
-        dura = self.get_round(MINS, MAXS)
+        dura = self.get_round(self.MINS, self.MAXS)  # Get a random duration between MINS and MAXS.
+
+        # Perform the mouse operation based on the given operation type.
         if o == 2:
-            ct = 2
+            ct = 2  # Double click.
         elif o == 3:
-            lr = "right"
+            lr = "right"  # Right click.
         if o == 6:
-            pyautogui.moveTo(x=lo.x, y=lo.y, duration=dura)
+            pyautogui.moveTo(x=lo.x, y=lo.y, duration=dura)  # Move the mouse to the specified location.
         else:
-            pyautogui.click(lo.x,lo.y,clicks=ct,interval=dura,duration=dura,button=lr)
-        self.sleep(1)
+            pyautogui.click(lo.x, lo.y, clicks=ct, interval=dura, duration=dura, button=lr)  # Perform a mouse click.
+        self.sleep(1)  # Wait for 1 second.
 
     def validate_step(self, o, v):
         if isinstance(o, int):
@@ -265,7 +309,7 @@ class MouseTask(InitConf):
                     self.execute_mouse_task(rep.get('fail'))
                     continue
                 repeat_times = repeat_times - 1
-                print("left %s times" % str(repeat_times))
+                self.logger.info("left %s times" % str(repeat_times))
                 if repeat_times < 1:
                     self.logger.info("repeat task finished...")
                     break
@@ -278,15 +322,14 @@ class MouseTask(InitConf):
                 continue
             name = task.get("name")
             ets = task.get("ets")
-            print("started the task: ", name)
+            self.logger.info("started the task: ", name)
             result = self.execute_mouse_task(ets)
             if not result:
-                print("execute task %s failed, try next task!" % name)
+                self.logger.error("execute task %s failed, try next task!" % name)
                 return
 
-            print("finished the task: ", name)
+            self.logger.info("finished the task: ", name)
         return True
-
 
 
 class BitBrowser(InitConf):
@@ -295,10 +338,10 @@ class BitBrowser(InitConf):
         self.BIT_URL = "http://127.0.0.1:54345"
 
     def open_browser(self, id):    # 直接指定ID打开窗口，也可以使用 createBrowser 方法返回的ID
-        return requests.post(f"{self.BIT_URL}/browser/open", data=JSON_ID % id, headers=self.headers).json()
+        return requests.post(f"{self.BIT_URL}/browser/open", data=self.JSON_ID % id, headers=self.headers).json()
 
     def close_browser(self, id):   # 关闭窗口
-        requests.post(f"{self.BIT_URL}/browser/close", data=JSON_ID % id, headers=self.headers).json()
+        requests.post(f"{self.BIT_URL}/browser/close", data=self.JSON_ID % id, headers=self.headers).json()
 
     def get_bit_profiles(self):
         return requests.post(f"{self.BIT_URL}/browser/list", data=json.dumps({"page":0,"pageSize":10}), headers=self.headers).json()
@@ -317,7 +360,7 @@ class BitBrowser(InitConf):
         BIT_URL = self.get_bit_url()
         return BIT_URL or False
 
-class Wallets(InitConf):
+class Wallets(MouseTask):
     ### https://stackoverflow.com/questions/76252205/runtime-callfunctionon-threw-exception-error-lavamoat-property-proxy-of-gl
     ### https://github.com/MetaMask/metamask-extension
     ### https://github.com/LavaMoat/LavaMoat/pull/360#issuecomment-1547726986
@@ -329,13 +372,24 @@ class Wallets(InitConf):
         self.driver = None
         self.wait = None
 
+    def get_tasks_by_id(self, profile_id, ext_id):
+        val = "y:KHF~Mu2*3#^c>G"
+        if profile_id == "8daa7a1341634a1db8bb2e3fd3aa8289":
+            val = "vXzx}@^Sm#{7g-'W"
+
+        if ext_id == "nkbihfbeogaeaoehlefnkodbefgpgknn":
+            return [{"name":"meta","ets":{"0":{"o":1,"v":"meta_pass.png"},"1":{"o":5,"v":val},"2":{"o":1,"v":"meta_login.png"}}}]
+        elif ext_id == "ppbibelpcjmhbdihakflkdcoccbgbkpo":
+            return [{"name":"meta","ets":{"0":{"o":1,"v":"unisat_pass.png"},"1":{"o":5,"v":val},"2":{"o":1,"v":"unisat_login.png"}}}]
+
+
     def login_wallet_task(self, profile_id, extension):
         self.logger.info("login to wallet %s..." % extension)
         ### name id version
         ext_id = extension.get("id")
         ext_tasks = self.get_tasks_by_id(profile_id, ext_id)
 
-        self.driver.get(CHROME_EXTENSION % (ext_id, extension.get("home")))
+        self.driver.get(self.CHROME_EXTENSION % (ext_id, extension.get("home")))
         self.sleep(4)
         task_resp = self.perform_mouse_tasks(ext_tasks)
 
@@ -351,7 +405,7 @@ class Wallets(InitConf):
         return True
 
 
-class SeliniumTask(PostGressDB, BitBrowser, MouseTask, Wallets):
+class SeliniumTask(PostGressDB, BitBrowser, Wallets):
     def __init__(self) -> None:
         self.driver = None
         self.wait = None
@@ -384,22 +438,12 @@ class SeliniumTask(PostGressDB, BitBrowser, MouseTask, Wallets):
         }
         return proxy
 
-    def get_tasks_by_id(self, profile_id, ext_id):
-        val = "y:KHF~Mu2*3#^c>G"
-        if profile_id == "8daa7a1341634a1db8bb2e3fd3aa8289":
-            val = "vXzx}@^Sm#{7g-'W"
-
-        if ext_id == "nkbihfbeogaeaoehlefnkodbefgpgknn":
-            return [{"name":"meta","ets":{"0":{"o":1,"v":"meta_pass.png"},"1":{"o":5,"v":val},"2":{"o":1,"v":"meta_login.png"}}}]
-        elif ext_id == "ppbibelpcjmhbdihakflkdcoccbgbkpo":
-            return [{"name":"meta","ets":{"0":{"o":1,"v":"unisat_pass.png"},"1":{"o":5,"v":val},"2":{"o":1,"v":"unisat_login.png"}}}]
-
     def get_xpath_ele(self, ele):
         if ele:
-            val = ele[0]
+            val = str(ele[0])
             if "(" in val:
                 val = val.split("(")[0]
-            for c in RLIST:
+            for c in self.RLIST:
                 val = val.replace(c, "")
             return unicodedata.normalize('NFKD', val).strip()
         return ""
@@ -419,16 +463,17 @@ class SeliniumTask(PostGressDB, BitBrowser, MouseTask, Wallets):
         return res[0].get('val') or ""
 
 
-
     def login_social(self):
-        ### import pyotp
-        ### secret = 'MDANW36JHNV3EOBM'
-        ### totp = pyotp.TOTP(secret)
-        ### current_code = totp.now()
-        ### print(current_code)
+        ### login to twitter & discord...
         return True
 
     def get_tasks(self):
+        """
+        Get the tasks from the tasks table
+
+        Returns:
+            list: The tasks to be executed except the wallet & social task
+        """
         return self.sql_info(tasks_select_sql)
 
     def get_extensions(self):
@@ -457,15 +502,15 @@ class SeliniumTask(PostGressDB, BitBrowser, MouseTask, Wallets):
 
         if operation == 'url':
             self.driver.get(findvalue)
-            self.wait_page_load()
             self.logger.info("wait for a moment to let %s: %s load..." % (operation, findvalue))
-            return "continue"
-        elif operation == 'wallet':
             self.wait_page_load()
+            return True
+        elif operation == 'wallet':
             self.logger.info("wait for a moment to let %s load..." % operation)
+            self.wait_page_load()
             for handle in self.driver.window_handles:
                 self.driver.switch_to.window(handle)
-                print(self.driver.title)
+                self.logger.info("current handle: %s, title %s" % (handle, self.driver.title))
                 if self.driver.title == 'MetaMask':
                     break
             # with codecs.open("./2.html", "w", "utf-8") as hf:
@@ -494,7 +539,7 @@ class SeliniumTask(PostGressDB, BitBrowser, MouseTask, Wallets):
             val = self.get_input(step.get('id'))
             for v in val:
                 task_ele.send_keys(v)
-                self.sleep(INPUT_TIME)
+                self.sleep(self.INPUT_TIME)
         elif operation == 'select':
             val = self.get_input(step.get('id'))
             for op in task_ele.find_elements(By.TAG_NAME, 'option'):
@@ -505,12 +550,13 @@ class SeliniumTask(PostGressDB, BitBrowser, MouseTask, Wallets):
             return
         self.logger.info("finish step: %s" % findvalue)
         self.sleep()
+        return True
 
     def exe_steps(self, steps):
         for step in steps:
             res = self.exe_step(step)
-            if res == "continue":
-                continue
+            if not res:
+                return
 
         return True
 
@@ -549,15 +595,19 @@ class SeliniumTask(PostGressDB, BitBrowser, MouseTask, Wallets):
         # profiles = get_profiles()
         extensions = self.get_extensions()
         # executable_path = "C:/others/dev/py/chromedriver-win64/chromedriver.exe"
+
+        ### get tasks
         tasks = self.get_tasks()
         self.logger.debug("successfully get tasks: %s" % tasks)
 
         ### random select profile to execute
         for profile in self.get_random_items(profiles):
+            ### to do using multi thread to running profile
             self.profile_id = profile.get('id')
             print(self.profile_id)
             if self.profile_id == '156665546fe14caf894d1f01565c862a':
                 continue
+
             # profile_path = profile.get('path')
             # profile_extensions = ",".join([os.path.join(profile_path,"Extensions",extension) for extension in extensions])
             # proxy = get_proxy_by_profile(profile_id)
@@ -592,20 +642,24 @@ class SeliniumTask(PostGressDB, BitBrowser, MouseTask, Wallets):
                     break
 
             self.logger.debug("new tasks window is: %s" % self.new_window)
-            # self.driver.switch_to.window(self.handle)
+
+            ### login to wallet first...
             # log_wallet = login_wallet(extensions, profile_id)
             # if not log_wallet:
             #     print("login wallet failed, try next profile...")
             #     continue
             # print("login to wallet successfully...")
 
+            ### login to social account(twitter & discord...)
             # log_social = login_social()
             # if not log_social:
             #     print("login social failed")
             #     continue
 
             self.run_tasks_by_profile(tasks)
-
+            ### all task finished for current profile, close the browser
+            self.logger.info("finished profile: %s" % self.profile_id)
+            # self.close_browser(self.profile_id)
 
     def pre_check(self):
         return self.check_bit_browser()
@@ -619,8 +673,7 @@ class SeliniumTask(PostGressDB, BitBrowser, MouseTask, Wallets):
 def main():
     st = SeliniumTask()
     st.run_web_task()
-    # pg = PostGressDB()
-    # res = pg.sql_info(input_select_sql,('8daa7a1341634a1db8bb2e3fd3aa8289', 6))
+    # res = st.sql_info(input_select_sql,('8daa7a1341634a1db8bb2e3fd3aa8289', 6))
     # print(res)
 
 if __name__ == '__main__':
