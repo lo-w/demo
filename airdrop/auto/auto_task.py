@@ -19,210 +19,233 @@ import pyautogui
 import logging
 from logging import handlers
 
-CUR_DIR             = os.path.dirname(os.path.abspath(__file__))
-LOG_DIR             = os.path.join(CUR_DIR, "./logs/")
-LOG_NAME            = os.path.splitext(os.path.basename(__file__))[0]
-confidence          = 0.9
 
-def check_path(c_path):
-    if not os.path.isdir(c_path):
-        os.makedirs(c_path)
+class InitConf():
+    def __init__(self) -> None:
+        self.pf         = platform.system()
+        self.MINS       = 1.0
+        self.MAXS       = 2.0
+        self.confidence = 0.9
 
-check_path(LOG_DIR)
-log_handler = handlers.TimedRotatingFileHandler(filename=LOG_DIR + LOG_NAME, backupCount=5)
-log_handler.suffix = "%Y%m%d"
-formatter = logging.Formatter(
-    '%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s',
-    '%a, %d %b %Y %H:%M:%S'
-)
-log_handler.setFormatter(formatter)
-logger = logging.getLogger()
-logger.addHandler(log_handler)
-logger.setLevel(logging.INFO)
+        self.cur_dir    = os.path.dirname(os.path.abspath(__file__))
+        self.log_level  = logging.INFO
+        self.log_dir    = os.path.join(self.cur_dir, "./logs/")
+        self.log_name   = os.path.splitext(os.path.basename(__file__))[0]
+        self.log_ext          = ".log"
+        self.check_path(self.log_dir)
+        self.logger = self.get_logger()
 
+    def check_path(self, c_path):
+        if not os.path.isdir(c_path):
+            os.makedirs(c_path)
 
-def get_chrome_path(chrome):
-    pf = platform.system()
-    cpath = ""
-    if "MacOS" in pf:
-        cpath = '/Applications/Google Chrome.app'
-        return 'open -a %s' % cpath + ' %s' if os.path.exists(cpath) else None
-    elif "Windows" in pf:
-        if chrome:
-            cpath = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+    def get_logger(self):
+        log_handler = handlers.TimedRotatingFileHandler(filename=self.log_dir + self.log_name + self.log_ext, backupCount=5)
+        log_handler.suffix = "%Y%m%d"
+        formatter = logging.Formatter(
+            '%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s',
+            '%a, %d %b %Y %H:%M:%S'
+        )
+        log_handler.setFormatter(formatter)
+        logger = logging.getLogger()
+        logger.addHandler(log_handler)
+        logger.setLevel(self.log_level)
+        return logger
+
+    def get_chrome_path(self, chrome):
+        pf = platform.system()
+        cpath = ""
+        if "MacOS" in pf:
+            cpath = '/Applications/Google Chrome.app'
+            return 'open -a %s' % cpath + ' %s' if os.path.exists(cpath) else None
+        elif "Windows" in pf:
+            if chrome:
+                cpath = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+            else:
+                cpath = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
+        elif "Linux" in pf:
+            if chrome:
+                cpath = '/usr/bin/google-chrome'
+            else:
+                cpath = '/usr/bin/microsoft-edge-stable'
+        return cpath + ' %s' if os.path.exists(cpath) else None
+
+    def open_url(self, cpath, url):
+        self.logger.info('start open url: %s' % url)
+        webbrowser.get(cpath).open(url)
+        self.sleep(3)
+        self.logger.info('finish open url')
+
+    def sleep(self, sec=1):
+        time.sleep(sec)
+
+    def get_round(self, mi, mx):
+        return round(random.uniform(mi, mx), 2)
+
+    def wait_input(self):
+        self.sleep(self.get_round(self.MINS, self.MAXS))
+class MouseTask(InitConf):
+    def __init__(self) -> None:
+        super().__init__()
+
+    def mouse(self, lo, o):
+        ct = 1
+        lr = "left"
+        dura = self.get_round(self.MINS, self.MAXS)
+        if o == 2:
+            ct = 2
+        elif o == 3:
+            lr = "right"
+        if o == 6:
+            pyautogui.moveTo(x=lo.x, y=lo.y, duration=dura)
         else:
-            cpath = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
-    elif "Linux" in pf:
-        if chrome:
-            cpath = '/usr/bin/google-chrome'
-        else:
-            cpath = '/usr/bin/microsoft-edge-stable'
-    return cpath + ' %s' if os.path.exists(cpath) else None
+            pyautogui.click(lo.x,lo.y,clicks=ct,interval=dura,duration=dura,button=lr)
+        self.sleep(1)
 
-def open_url(cpath, url):
-    print('start open url: ', url)
-    webbrowser.get(cpath).open(url)
-    sleep(3)
-    print('finish open url')
-
-def sleep(sec=1):
-    time.sleep(sec)
-
-def mouse(lo, o):
-    ct = 1
-    lr = "left"
-    dura = round(random.uniform(0.5, 1),2)
-    if o == 2:
-        ct = 2
-    elif o == 3:
-        lr = "right"
-    if o == 6:
-        pyautogui.moveTo(x=lo.x, y=lo.y, duration=dura)
-    else:
-        pyautogui.click(lo.x,lo.y,clicks=ct,interval=dura,duration=dura,button=lr)
-    sleep(1)
-
-def validate_step(o, v):
-    if isinstance(o, int):
-        if o == 0:
-            return True
-        elif 0 < o < 4:
-            return True if os.path.exists(os.path.join(CUR_DIR, v)) else False
-        elif o == 4:
-            return True if isinstance(v, int) else False
-        elif o == 5:
-            return True if isinstance(v, str) else False
-        elif  o == 6 or o == 7:
-            return True
-    return False
-
-def get_location(v, r):
-    retry_times = r if r else 4
-    for _ in range(retry_times):
-        try:
-            location = pyautogui.locateCenterOnScreen(os.path.join(CUR_DIR, v), confidence=confidence)
-            return location
-        except:
-            sleep(2)
-    logger.error("cannot get image location")
-    return None
-
-def execute_step(o, v, s, r):
-    if o == 0:
-        # print("sleep for %s seconds" % v)
-        mi = v-2 if v >2 else 0
-        sleep(round(random.uniform(mi, v),2))
-    elif 0 < o < 4 or o == 6:
-        location = get_location(v, r)
-        if location:
-            mouse(location, o)
-            return True
-        return True if s else False
-    elif o == 4:
-        # print("scroll %s..." % v)
-        pyautogui.scroll(v)
-    elif o == 5:
-        pyperclip.copy(v)
-        sleep(round(random.uniform(1, 2),2))
-        pyautogui.hotkey('ctrl','v')
-        sleep(round(random.uniform(1, 2),2))
-    elif o == 7:
-        pyautogui.hotkey(v)
-    else:
+    def validate_step(self, o, v):
+        if isinstance(o, int):
+            if o == 0:
+                return True
+            elif 0 < o < 4:
+                return True if os.path.exists(os.path.join(self.cur_dir, v)) else False
+            elif o == 4:
+                return True if isinstance(v, int) else False
+            elif o == 5:
+                return True if isinstance(v, str) else False
+            elif  o == 6 or o == 7:
+                return True
         return False
-    return True
 
-def execute_task(ets):
-    tc = len(ets.keys()) if ets else 1
-    rep = ets.get('rep')
-    fail = ets.get("fail")
-    if rep:
-        tc = tc - 2
-    if fail:
-        tc = tc - 1
-    for i in range (tc):
-        es = ets.get(i)
-        if not es:
-            logger.error("get execute task failed...")
-            return False
-        o = es.get('o')
-        v = es.get('v')
-        s = es.get('s')
-        r = es.get('r')
-        vs = validate_step(o, v)
-        if not vs:
-            logger.error("validate failed...")
-            return False
-        logger.info("start step: %s" % es)
-        result = execute_step(o, v, s, r)
-        if not result:
-            return False
-        # print("finish step...")
+    def get_location(self, v, r):
+        retry_times = r if r else 4
+        for _ in range(retry_times):
+            try:
+                location = pyautogui.locateCenterOnScreen(os.path.join(self.cur_dir, v), confidence=self.confidence)
+                return location
+            except:
+                self.sleep(2)
+        self.logger.error("cannot get image location")
+        return None
 
-    if rep:
-        print("start repeat tasks...")
+    def execute_step(self, o, v, s, r):
+        if o == 0:
+            # print("sleep for %s seconds" % v)
+            mi = v-2 if v >2 else 0
+            self.sleep(self.get_round(mi, v))
+        elif 0 < o < 4 or o == 6:
+            location = self.get_location(v, r)
+            if location:
+                self.mouse(location, o)
+                return True
+            return True if s else False
+        elif o == 4:
+            # print("scroll %s..." % v)
+            pyautogui.scroll(v)
+        elif o == 5:
+            pyperclip.copy(v)
+            self.wait_input()
+            pyautogui.hotkey('ctrl','v')
+            self.wait_input()
+        elif o == 7:
+            pyautogui.hotkey(v)
+        else:
+            return False
+        return True
+
+    def execute_repeat_task(self, ets):
+        self.logger.info("start repeat tasks...")
+        rep = ets.get('rep')
         repeat_times = ets.get("ett")
         failed_count = 10
         while True:
-            result = execute_task(rep)
+            result = self.execute_mouse_task(rep)
             if not result:
-                logger.error("repeat task failed...")
+                self.logger.error("repeat task failed...")
                 failed_count = failed_count - 1
                 if failed_count < 1:
-                    logger.error("too many failed try...")
+                    self.logger.error("too many failed try...")
                     return False
-                execute_task(rep.get('fail'))
+                self.execute_mouse_task(rep.get('fail'))
                 continue
             repeat_times = repeat_times - 1
-            logger.info("left %s times" % str(repeat_times))
+            self.logger.info("left %s times" % str(repeat_times))
             if repeat_times < 1:
                 break
-            sleep(2)
-    return True
+            self.sleep(2)
+        return True
 
-def perform_tasks(tasks):
-    for task in tasks:
-        if task.get("skip"):
-            continue
-        name = task.get("name")
-        et = task.get("type")
-        ets = task.get("ets")
-        print("started the task: ", name)
-        if et:
-            cpath = get_chrome_path(task.get("chrome"))
-            if not cpath:
-                logger.error("no chrome/edge found in system, try next task!")
+    def execute_mouse_task(self, ets):
+        tc = len(ets.keys()) if ets else 1
+        rep = ets.get('rep')
+        fail = ets.get("fail")
+        if rep:
+            tc = tc - 2
+        if fail:
+            tc = tc - 1
+        for i in range (tc):
+            es = ets.get(i)
+            if not es:
+                self.logger.error("get execute task failed...")
+                return False
+            o = es.get('o')
+            v = es.get('v')
+            s = es.get('s')
+            r = es.get('r')
+            vs = self.validate_step(o, v)
+            if not vs:
+                self.logger.error("validate failed...")
+                return False
+            self.logger.info("start step: %s" % es)
+            result = self.execute_step(o, v, s, r)
+            if not result:
+                return False
+            # print("finish step...")
+
+        if rep:
+            return self.execute_repeat_task(ets)
+        return True
+
+    def perform_tasks(self, tasks):
+        for task in tasks:
+            if task.get("skip"):
                 continue
-            url = task.get("url")
-            open_url(cpath, url)
+            name = task.get("name")
+            et = task.get("type")
+            ets = task.get("ets")
+            self.logger.info("started the task: %s" % name)
+            if et:
+                cpath = self.get_chrome_path(task.get("chrome"))
+                if not cpath:
+                    self.logger.error("no chrome/edge found in system, try next task!")
+                    continue
+                url = task.get("url")
+                self.open_url(cpath, url)
 
-        result = execute_task(ets)
-        if not result:
-            logger.error("execute task: %s failed, try next task!" % name)
-            continue
+            result = self.execute_mouse_task(ets)
+            if not result:
+                self.logger.error("execute task: %s failed, try next task!" % name)
+                continue
 
-        if et:
-            logger.info("closing the tab...")
-            pyautogui.hotkey('ctrl', 'w')
+            if et:
+                self.logger.info("closing the tab...")
+                pyautogui.hotkey('ctrl', 'w')
 
-        logger.info("finished the task: %s" % name)
+            self.logger.info("finished the task: %s" % name)
 
-def get_tasks(task_yaml):
-    task_yaml = task_yaml if task_yaml else "task.yml"
-    tasks = {}
-    task_file_path = os.path.join(CUR_DIR, task_yaml)
-    if os.path.exists(task_file_path):
-        with open(task_file_path, 'r', encoding='UTF-8') as f:
-            task_text = f.read()
-            tasks = yaml.load(task_text, Loader=yaml.FullLoader)
-    return tasks.get("tasks")
+    def get_tasks(self, task_yaml):
+        task_yaml = task_yaml if task_yaml else "task.yml"
+        tasks = {}
+        task_file_path = os.path.join(self.cur_dir, task_yaml)
+        if os.path.exists(task_file_path):
+            with open(task_file_path, 'r', encoding='UTF-8') as f:
+                task_text = f.read()
+                tasks = yaml.load(task_text, Loader=yaml.FullLoader)
+        return tasks.get("tasks")
 
 
 if __name__ == '__main__':
-    tasks = get_tasks("")
-    if tasks:
-        # import json
-        # print(json.dumps(tasks))
-        perform_tasks(tasks)
-    else:
-        logger.error("no task need to execute, exit!")
+    mt = MouseTask()
+    tasks_chrome = mt.get_tasks("task.chrome.yml")
+    tasks_edge   = mt.get_tasks("task.edge.yml")
+    mt.perform_tasks(tasks_chrome)
+    mt.perform_tasks(tasks_edge)
