@@ -165,7 +165,9 @@ class MouseTask(InitConf):
                 if failed_count < 1:
                     self.logger.error("too many failed try...")
                     return False
-                self.execute_mouse_task(rep.get('fail'))
+                failed_task = rep.get('fail')
+                if failed_task:
+                    self.execute_mouse_task(failed_task)
                 continue
             repeat_times = repeat_times - 1
             self.logger.info("left %s times" % str(repeat_times))
