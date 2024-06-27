@@ -18,6 +18,7 @@ import pyperclip
 import pyautogui
 import logging
 from logging import handlers
+from configparser import ConfigParser
 
 
 class InitConf():
@@ -31,13 +32,17 @@ class InitConf():
         self.log_level  = logging.INFO
         self.log_dir    = os.path.join(self.cur_dir, "./logs/")
         self.log_name   = os.path.splitext(os.path.basename(__file__))[0]
-        self.log_ext          = ".log"
+        self.log_ext    = ".log"
+        self.conf       = self.load_config()
         self.check_path(self.log_dir)
-        self.logger = self.get_logger()
+        self.logger     = self.get_logger()
 
     def check_path(self, c_path):
         if not os.path.isdir(c_path):
             os.makedirs(c_path)
+
+    def get_cur_path(self, file_name):
+        return os.path.join(self.cur_dir, file_name)
 
     def get_logger(self):
         log_handler = handlers.TimedRotatingFileHandler(filename=self.log_dir + self.log_name + self.log_ext, backupCount=5)
@@ -84,6 +89,20 @@ class InitConf():
 
     def wait_input(self):
         self.sleep(self.get_round(self.MINS, self.MAXS))
+
+    def load_config(self, filename='auto.ini', section='auto'):
+        parser = ConfigParser()
+        parser.read(self.get_cur_path(filename))
+        if not parser.has_section(section):
+            raise Exception('Section {0} not found in the {1} file'.format(section, filename))
+        # get section, default to postgresql
+        config = {}
+        params = parser.items(section)
+        for param in params:
+            config[param[0]] = param[1]
+        return config
+
+
 class MouseTask(InitConf):
     def __init__(self) -> None:
         super().__init__()
@@ -116,7 +135,7 @@ class MouseTask(InitConf):
                 return True
         return False
 
-    def get_location(self, v, r):
+    def get_location(self, v, r, s):
         retry_times = r if r else 4
         for _ in range(retry_times):
             try:
@@ -124,7 +143,8 @@ class MouseTask(InitConf):
                 return location
             except:
                 self.sleep(2)
-        self.logger.error("cannot get image location")
+        if not s:
+            self.logger.error("cannot get image location")
         return None
 
     def execute_step(self, o, v, s, r):
@@ -133,7 +153,7 @@ class MouseTask(InitConf):
             mi = v-2 if v >2 else 0
             self.sleep(self.get_round(mi, v))
         elif 0 < o < 4 or o == 6:
-            location = self.get_location(v, r)
+            location = self.get_location(v, r, s)
             if location:
                 self.mouse(location, o)
                 return True
@@ -247,7 +267,9 @@ class MouseTask(InitConf):
 
 if __name__ == '__main__':
     mt = MouseTask()
-    tasks_chrome = mt.get_tasks("task.chrome.yml")
-    tasks_edge   = mt.get_tasks("task.edge.yml")
-    mt.perform_tasks(tasks_chrome)
-    mt.perform_tasks(tasks_edge)
+    tasks_tmp = mt.conf.get('tasks')
+    if tasks_tmp:
+        tasks = tasks_tmp.split(';')
+        for task in tasks:
+            # print(mt.get_tasks(task))
+            mt.perform_tasks(mt.get_tasks(task))
