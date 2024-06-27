@@ -84,8 +84,13 @@ class InitConf():
     def sleep(self, sec=1):
         time.sleep(sec)
 
-    def get_round(self, mi, mx):
-        return round(random.uniform(mi, mx), 2)
+    def get_round(self, mi, mx, decimal_places=2):
+        return round(random.uniform(float(mi), float(mx)), decimal_places)
+
+    def get_offset(self):
+        ### x: width
+        ### y: height
+        return {"x": self.get_round(-10, 10), "y": self.get_round(-10, 10)}
 
     def wait_input(self):
         self.sleep(self.get_round(self.MINS, self.MAXS))
@@ -111,14 +116,18 @@ class MouseTask(InitConf):
         ct = 1
         lr = "left"
         dura = self.get_round(self.MINS, self.MAXS)
+        offset = self.get_offset()
         if o == 2:
             ct = 2
         elif o == 3:
             lr = "right"
+
+        x = lo.x + offset.get('x')
+        y = lo.y + offset.get('y')
         if o == 6:
-            pyautogui.moveTo(x=lo.x, y=lo.y, duration=dura)
+            pyautogui.moveTo(x=x, y=y, duration=dura)  # Move the mouse to the specified location.
         else:
-            pyautogui.click(lo.x,lo.y,clicks=ct,interval=dura,duration=dura,button=lr)
+            pyautogui.click(x, y, clicks=ct, interval=dura, duration=dura, button=lr)  # Perform a mouse click.
         self.sleep(1)
 
     def validate_step(self, o, v):

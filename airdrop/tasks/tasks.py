@@ -313,10 +313,13 @@ class MouseTask(InitConf):
             ct = 2  # Double click.
         elif o == 3:
             lr = "right"  # Right click.
+
+        x = lo.x + offset.get('x')
+        y = lo.y + offset.get('y')
         if o == 6:
-            pyautogui.moveTo(x=lo.x + offset.get('x'), y=lo.y + offset.get('y'), duration=dura)  # Move the mouse to the specified location.
+            pyautogui.moveTo(x=x, y=y, duration=dura)  # Move the mouse to the specified location.
         else:
-            pyautogui.click(lo.x, lo.y, clicks=ct, interval=dura, duration=dura, button=lr)  # Perform a mouse click.
+            pyautogui.click(x, y, clicks=ct, interval=dura, duration=dura, button=lr)  # Perform a mouse click.
         self.wait_input()
 
     def validate_step(self, o, v):
