@@ -11,12 +11,15 @@ pip install opencv-python -i https://pypi.tuna.tsinghua.edu.cn/simple
 import os
 import time
 import yaml
+import psutil
 import random
 import platform
 import webbrowser
 import pyperclip
 import pyautogui
 import logging
+import threading
+
 from logging import handlers
 from configparser import ConfigParser
 
@@ -28,6 +31,7 @@ class InitConf():
         self.MAXS       = 2.0
         self.confidence = 0.9
 
+        self.browser    = None
         self.cur_dir    = os.path.dirname(os.path.abspath(__file__))
         self.log_level  = logging.INFO
         self.log_dir    = os.path.join(self.cur_dir, "./logs/")
@@ -75,8 +79,27 @@ class InitConf():
                 cpath = '/usr/bin/microsoft-edge-stable'
         return cpath + ' %s' if os.path.exists(cpath) else None
 
+    def if_process_is_running_by_exename(self, exename='chrome'):
+        ### chrome, msedge
+        for proc in psutil.process_iter(['pid', 'name']):
+            # This will check if there exists any process running with executable name
+            if proc.info['name'] == exename:
+                return True
+        return False
+
     def open_url(self, cpath, url):
         self.logger.info('start open url: %s' % url)
+
+        if self.browser:
+            browser_running = self.if_process_is_running_by_exename("chrome")
+        else:
+            browser_running = self.if_process_is_running_by_exename("msedge")
+
+        if not browser_running:
+            x=lambda: webbrowser.get(cpath).open("")
+            threading.Thread(target=x).start()
+            self.sleep(2)
+
         webbrowser.get(cpath).open(url)
         self.sleep(3)
         self.logger.info('finish open url')
@@ -84,13 +107,8 @@ class InitConf():
     def sleep(self, sec=1):
         time.sleep(sec)
 
-    def get_round(self, mi, mx, decimal_places=2):
-        return round(random.uniform(float(mi), float(mx)), decimal_places)
-
-    def get_offset(self):
-        ### x: width
-        ### y: height
-        return {"x": self.get_round(-10, 10), "y": self.get_round(-10, 10)}
+    def get_round(self, mi, mx):
+        return round(random.uniform(mi, mx), 2)
 
     def wait_input(self):
         self.sleep(self.get_round(self.MINS, self.MAXS))
@@ -116,18 +134,14 @@ class MouseTask(InitConf):
         ct = 1
         lr = "left"
         dura = self.get_round(self.MINS, self.MAXS)
-        offset = self.get_offset()
         if o == 2:
             ct = 2
         elif o == 3:
             lr = "right"
-
-        x = lo.x + offset.get('x')
-        y = lo.y + offset.get('y')
         if o == 6:
-            pyautogui.moveTo(x=x, y=y, duration=dura)  # Move the mouse to the specified location.
+            pyautogui.moveTo(x=lo.x, y=lo.y, duration=dura)
         else:
-            pyautogui.click(x, y, clicks=ct, interval=dura, duration=dura, button=lr)  # Perform a mouse click.
+            pyautogui.click(lo.x,lo.y,clicks=ct,interval=dura,duration=dura,button=lr)
         self.sleep(1)
 
     def validate_step(self, o, v):
@@ -245,7 +259,9 @@ class MouseTask(InitConf):
             ets = task.get("ets")
             self.logger.info("started the task: %s" % name)
             if et:
-                cpath = self.get_chrome_path(task.get("chrome"))
+                self.browser = task.get("chrome")
+                cpath = self.get_chrome_path(self.browser)
+
                 if not cpath:
                     self.logger.error("no chrome/edge found in system, try next task!")
                     continue
