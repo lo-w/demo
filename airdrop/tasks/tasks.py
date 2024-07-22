@@ -5,30 +5,11 @@
 @Author  :   renjun
 '''
 
-import os
 import json
-import time
-import uuid
-import pyotp
 import codecs
-import ctypes
 import psutil
-import hashlib
-import random
-import logging
 import requests
-import platform
 import unicodedata
-import pyperclip
-import pyautogui
-import psycopg2
-import psycopg2.extras
-
-from lxml import html
-from logging import handlers
-from datetime import datetime
-from configparser import ConfigParser
-from multiprocessing.pool import ThreadPool
 
 from selenium import webdriver
 from selenium.webdriver.common.action_chains import ActionChains
@@ -166,11 +147,14 @@ class SeleniumTask(PostGressDB):
             if handle in self.know_handle:
                 continue
             self.sleep(self.INPUT_TIME)
-            self.driver.switch_to.window(handle)
-            cur_title = self.driver.title
-            self.logger.debug("current handle: %s, title %s" % (handle, cur_title))
-            if cur_title == handle_title or (not handle_title and cur_title not in self.know_titles):
-                return handle
+            try:
+                self.driver.switch_to.window(handle)
+                cur_title = self.driver.title
+                self.logger.debug("current handle: %s, title %s" % (handle, cur_title))
+                if cur_title == handle_title or (not handle_title and cur_title not in self.know_titles):
+                    return handle
+            except:
+                self.logger.info("failed to switch handle: %s" % handle_title)
         return False
 
     def get_new_handle(self):
@@ -458,7 +442,7 @@ class WebTask(BitBrowser, Wallets):
         sub_failed_count = 0
         for ost in self.get_random_items(other_list):
 
-            # if ost != "finance":
+            # if ost in ["add", "kappa"]:
             #     continue
 
             self.driver.switch_to.window(self.task_handle)
@@ -485,7 +469,7 @@ class WebTask(BitBrowser, Wallets):
         ### shuffle the task
         for task in self.get_random_items(tasks):
             task_name = task.get('name')
-            # if task_name != "morphl2":
+            # if task_name != "ZULU":
             #     continue
             self.logger.info("start  profile: %s, task: %s" % (self.profile_id, task_name))
             res = self.exe_sub_tasks(task_name)
@@ -514,8 +498,8 @@ class WebTask(BitBrowser, Wallets):
         for profile in self.get_random_items(profiles):
             ### TODO using multi thread to running profile
             self.profile_id = profile.get('id')
-            if self.profile_id != '156665546fe14caf894d1f01565c862a':
-                continue
+            # if self.profile_id != '156665546fe14caf894d1f01565c862a':
+            #     continue
             self.logger.info("start  profile: %s" % self.profile_id)
             # profile_path = profile.get('path')
             # profile_extensions = ",".join([os.path.join(profile_path,"Extensions",extension) for extension in extensions])

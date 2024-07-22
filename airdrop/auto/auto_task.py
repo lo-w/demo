@@ -12,7 +12,6 @@ import os
 import yaml
 import pyautogui
 
-
 import sys
 from os import path
 sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
@@ -27,7 +26,7 @@ class AutoTask(MouseTask):
         self.cur_dir = self.get_cur_dir(__file__)
         self.conf = self.load_config(self.get_cur_path("auto.ini"), "auto")
 
-    def perform_tasks(self, tasks):
+    def perform_mouse_tasks(self, tasks):
         for task in tasks:
             if task.get("skip"):
                 continue
@@ -35,7 +34,7 @@ class AutoTask(MouseTask):
             et = task.get("type")
             ets = task.get("ets")
             # print(self.log_dir)
-            self.logger.info("started the task: %s" % name)
+            self.logger.info("started  the task: %s" % name)
             if et:
                 self.browser = task.get("chrome")
                 cpath = self.get_chrome_path(self.browser)
@@ -76,4 +75,4 @@ if __name__ == '__main__':
         tasks = tasks_tmp.split(';')
         for task in tasks:
             # print(at.get_tasks(task))
-            at.perform_tasks(at.get_tasks(task))
+            at.perform_mouse_tasks(at.get_tasks(task))

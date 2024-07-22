@@ -5,17 +5,12 @@
 @Author  :   renjun
 '''
 import os
-import json
 import time
-import uuid
 import pyotp
-import codecs
 import ctypes
 import psutil
-import hashlib
 import random
 import logging
-import requests
 import platform
 import unicodedata
 import pyperclip
@@ -46,7 +41,6 @@ class InitConf():
         self.log_ext          = ".log"
         self.cur_dir          = self.get_cur_dir(__file__)
         self.log_dir          = self.get_log_path("./logs/")
-        self.check_path(self.log_dir)
         self.logger           = self.get_logger(self.get_log_name(__file__))
 
         self.MINS             = 1.0
@@ -61,7 +55,7 @@ class InitConf():
         self.wait_time        = 10
         self.wait_handle      = 15
         self.CHROME_EXTENSION = "chrome-extension://%s/%s.html"
-        self.position         = ["0,0","%s,0" % str(int(self.getMWH()[0]/2))]
+        self.position         = ["0,0","%s,0" % str(int(self.getMWH()[0])/2)]
         self.browser          = None
 
     def get_cur_dir(self, file_name):
@@ -81,11 +75,12 @@ class InitConf():
             os.makedirs(c_path)
 
     def get_logger(self, log_name):
+        self.check_path(self.log_dir)
         log_handler = handlers.TimedRotatingFileHandler(filename=self.log_dir + log_name + self.log_ext, backupCount=5)
         log_handler.suffix = "%Y%m%d"
         formatter = logging.Formatter(
-            '%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s',
-            '%a, %d %b %Y %H:%M:%S'
+            '%(asctime)s,%(msecs)03d %(levelname)-5s [%(filename)-12s:%(lineno)03d] %(message)s',
+            '%Y-%m-%d:%H:%M:%S'
         )
         log_handler.setFormatter(formatter)
         logger = logging.getLogger()
@@ -128,7 +123,7 @@ class InitConf():
     def get_offset(self):
         ### x: width
         ### y: height
-        return {"x": self.get_round(-20, 10), "y": self.get_round(-6, 6)}
+        return {"x": self.get_round(-10, 10), "y": self.get_round(-6, 6)}
 
     def getMWH(self):
         if "Windows" in self.pf:
@@ -187,7 +182,7 @@ class InitConf():
         return cpath + ' %s' if os.path.exists(cpath) else None
 
     def open_url(self, cpath, url):
-        self.logger.info('start open url: %s' % url)
+        self.logger.info('start  open url: %s' % url)
         browser_running = self.if_process_is_running_by_exename(self.browser_name)
 
         if not browser_running:
@@ -352,21 +347,6 @@ class MouseTask(InitConf):
             if not res:
                 return
         return self.execute_repeat_task(ets) if rep else True
-
-    def perform_mouse_tasks(self, tasks):
-        for task in tasks:
-            if task.get("skip"):
-                continue
-            name = task.get("name")
-            ets = task.get("ets")
-            self.logger.info("started the task: ", name)
-            result = self.execute_mouse_task(ets)
-            if not result:
-                self.logger.error("execute task %s failed, try next task!" % name)
-                return
-
-            self.logger.info("finished the task: ", name)
-        return True
 
 
 class PostGressDB(InitConf):
