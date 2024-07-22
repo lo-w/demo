@@ -51,7 +51,7 @@ class AutoTask(MouseTask):
                 continue
 
             if et:
-                self.logger.info("closing the tab...")
+                self.logger.info("closing  the tab...")
                 pyautogui.hotkey('ctrl', 'w')
 
             self.logger.info("finished the task: %s" % name)
