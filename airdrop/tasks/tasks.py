@@ -19,16 +19,11 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-# from auto_metamask import setupWebdriver
 
-import sys
-from os import path
-sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
 from airdrop.utils.utils import InitConf, PostGressDB, MouseTask
 
-profiles_select_sql     =  "SELECT * FROM profiles;"
 
-# task_sub_select_sql   =  "SELECT name,subtask,times FROM tasks where name=%s order by id;"
+profiles_select_sql     =  "SELECT * FROM profiles;"
 task_sub_select_sql     =  '''
                             SELECT 
                                 t.id        id,

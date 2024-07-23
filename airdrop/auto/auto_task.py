@@ -11,10 +11,6 @@ pip install opencv-python -i https://pypi.tuna.tsinghua.edu.cn/simple
 import os
 import yaml
 
-import sys
-from os import path
-sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
-
 from airdrop.utils.utils import MouseTask
 
 
