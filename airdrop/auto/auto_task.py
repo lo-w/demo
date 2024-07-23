@@ -10,7 +10,6 @@ pip install opencv-python -i https://pypi.tuna.tsinghua.edu.cn/simple
 '''
 import os
 import yaml
-import pyautogui
 
 import sys
 from os import path
@@ -52,7 +51,7 @@ class AutoTask(MouseTask):
 
             if et:
                 self.logger.info("closing  the tab...")
-                pyautogui.hotkey('ctrl', 'w')
+                self.execute_task_step({"o":7,"v":["ctrl","w"]})
 
             self.logger.info("finished the task: %s" % name)
 

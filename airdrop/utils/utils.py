@@ -28,7 +28,6 @@ from configparser import ConfigParser
 
 profile_select_sql      =  "SELECT * FROM profiles where profile=%s;"
 extensions_select_sql   =  "SELECT * FROM extensions;"
-# tasks_select_sql      =  "SELECT distinct name      FROM tasks;"
 tasks_select_sql        =  "SELECT distinct name FROM tasks where name not in ('metamask','unisat','keplr','fallback');"
 
 
@@ -45,15 +44,19 @@ class InitConf():
 
         self.MINS             = 1.0
         self.MAXS             = 2.0
-        self.confidence       = 0.9
-        self.r                = 4
-
-        self.RLIST            = [",", "-"]
-        self.JSON_ID          = '{"id": "%s"}'
-        self.WEB_PAGE_TIMEOUT = 30
         self.INPUT_TIME       = 0.1
         self.wait_time        = 10
         self.wait_handle      = 15
+        self.WEB_PAGE_TIMEOUT = 30
+
+        self.confidence       = 0.9
+        self.r                = 4
+
+        self.wallets_pre      = ["meta_", "okx_"]
+        self.wallets_not      = ["wallets", "switch"]
+        self.RLIST            = [",", "-"]
+        self.JSON_ID          = '{"id": "%s"}'
+
         self.CHROME_EXTENSION = "chrome-extension://%s/%s.html"
         self.position         = ["0,0","%s,0" % str(int(self.getMWH()[0])/2)]
         self.browser          = None
@@ -80,7 +83,7 @@ class InitConf():
         log_handler.suffix = "%Y%m%d"
         formatter = logging.Formatter(
             '%(asctime)s,%(msecs)03d %(levelname)-5s [%(filename)-12s:%(lineno)03d] %(message)s',
-            '%Y-%m-%d:%H:%M:%S'
+            '%Y-%m-%d %H:%M:%S'
         )
         log_handler.setFormatter(formatter)
         logger = logging.getLogger()
@@ -294,8 +297,14 @@ class MouseTask(InitConf):
         v = es.get('v')
         s = es.get('s')
         r = es.get('r')
-        if str(v).startswith("meta_"):
-            v = "wallets/%s" % v
+
+        for wallet_pre in self.wallets_pre:
+            if str(v).startswith(wallet_pre):
+                v = "wallets/%s" % v
+
+        if str(v).startswith("task_"):
+            v = "tasks/%s" % v
+
         vs = self.validate_step(o, v)
         if not vs:
             self.logger.error("validate failed...")
