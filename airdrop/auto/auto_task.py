@@ -50,6 +50,7 @@ class AutoTask(MouseTask):
                 self.execute_task_step({"o":7,"v":["ctrl","w"]})
 
             self.logger.info("finished the task: %s" % name)
+        self.close_webbrowser()
 
     def get_tasks(self, task_yaml):
         task_yaml = task_yaml if task_yaml else "task.yml"

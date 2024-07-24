@@ -180,8 +180,10 @@ class InitConf():
         elif "Windows" in self.pf:
             cpath = 'C:/Program Files/Google/Chrome/Application/chrome.exe' if chrome else 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
             self.browser_name += ".exe"
+            self.browser_close = "taskkill /f /im " + self.browser_name
         elif "Linux" in self.pf:
             cpath = '/usr/bin/google-chrome' if chrome else '/usr/bin/microsoft-edge-stable'
+            self.browser_close = "pkill " + self.browser_name
         return cpath + ' %s' if os.path.exists(cpath) else None
 
     def open_url(self, cpath, url):
@@ -197,6 +199,9 @@ class InitConf():
         self.sleep(3)
         self.logger.info('finish open url')
 
+    def close_browser(self):
+        if self.browser_close:
+            os.system(self.browser_close)
 
 class MouseTask(InitConf):
     def __init__(self) -> None:
@@ -309,7 +314,7 @@ class MouseTask(InitConf):
         if not vs:
             self.logger.error("validate failed...")
             return
-        self.logger.debug("start  mouse step: %s" % es)
+        self.logger.info("start  mouse step: %s" % es)
         result = self.execute_step(o, v, s, r)
         if not result:
             return
