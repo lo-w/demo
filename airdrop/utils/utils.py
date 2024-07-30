@@ -34,7 +34,8 @@ tasks_select_sql        =  "SELECT distinct name FROM tasks where name not in ('
 class InitConf():
     def __init__(self) -> None:
         self.pf               = platform.system()
-        self.google_url       = "https://www.google.com"
+        self.new_url          = "https://www.bing.com"
+        self.new_title        = "Bing"
 
         self.log_level        = logging.INFO
         self.log_ext          = ".log"
@@ -45,7 +46,7 @@ class InitConf():
         self.MINS             = 1.0
         self.MAXS             = 2.0
         self.INPUT_TIME       = 0.1
-        self.wait_time        = 10
+        self.wait_time        = 5
         self.wait_handle      = 15
         self.WEB_PAGE_TIMEOUT = 30
 
@@ -60,6 +61,8 @@ class InitConf():
         self.CHROME_EXTENSION = "chrome-extension://%s/%s.html"
         self.position         = ["0,0","%s,0" % str(int(self.getMWH()[0])/2)]
         self.browser          = None
+        self.browser_close    = None
+        self.tweens           = [pyautogui.easeInOutQuart, pyautogui.easeInOutQuint, pyautogui.easeInOutSine, pyautogui.easeInOutExpo]
 
     def get_cur_dir(self, file_name):
         return os.path.dirname(os.path.abspath(file_name))
@@ -100,13 +103,16 @@ class InitConf():
         time.sleep(sec)
 
     def get_round(self, mi, mx, decimal_places=2):
-        return round(random.uniform(float(mi), float(mx)), decimal_places)
+        return round(random.uniform(float(mi), float(mx)), int(decimal_places))
 
     def get_random_from_range(self, spl, val_string):
         val = val_string
         if spl in val_string:
             val_list = str(val_string).split(spl)
-            val = self.get_round(val_list[0], val_list[-1])
+            if len(val_list) > 2:
+                val = self.get_round(val_list[0], val_list[-1], val_list[-2])
+            else:
+                val = self.get_round(val_list[0], val_list[-1])
         return val
 
     def wait_input(self, mi=None, mx=None):
@@ -122,6 +128,9 @@ class InitConf():
 
     def get_random_items(self, items):
         return random.sample(items, len(items))
+
+    def choose_item_from_list(self, items):
+        return random.choice(items)
 
     def get_offset(self):
         ### x: width
@@ -191,7 +200,7 @@ class InitConf():
         browser_running = self.if_process_is_running_by_exename(self.browser_name)
 
         if not browser_running:
-            x=lambda: webbrowser.get(cpath).open(self.google_url)
+            x=lambda: webbrowser.get(cpath).open(self.new_url)
             threading.Thread(target=x).start()
             self.sleep(2)
 
@@ -199,9 +208,6 @@ class InitConf():
         self.sleep(3)
         self.logger.info('finish open url')
 
-    def close_browser(self):
-        if self.browser_close:
-            os.system(self.browser_close)
 
 class MouseTask(InitConf):
     def __init__(self) -> None:
@@ -239,7 +245,7 @@ class MouseTask(InitConf):
 
         x = lo.x + offset.get('x')
         y = lo.y + offset.get('y')
-        tween = pyautogui.easeInOutSine
+        tween = self.choose_item_from_list(self.tweens)
 
         if o == 6:
             pyautogui.moveTo(x, y, duration=dura,tween=tween)  # Move the mouse to the specified location.
@@ -314,7 +320,7 @@ class MouseTask(InitConf):
         if not vs:
             self.logger.error("validate failed...")
             return
-        self.logger.info("start  mouse step: %s" % es)
+        self.logger.debug("start  mouse step: %s" % es)
         result = self.execute_step(o, v, s, r)
         if not result:
             return
@@ -361,6 +367,10 @@ class MouseTask(InitConf):
             if not res:
                 return
         return self.execute_repeat_task(ets) if rep else True
+
+    def close_webbrowser(self):
+        if self.browser_close:
+            os.system(self.browser_close)
 
 
 class PostGressDB(InitConf):

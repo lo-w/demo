@@ -19,6 +19,8 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import StaleElementReferenceException
 
 from airdrop.utils.utils import InitConf, PostGressDB, MouseTask
 
@@ -104,7 +106,8 @@ class SeleniumTask(PostGressDB):
         self.last_net    = ""
         self.know_handle = []
         self.know_titles = ["MetaMask","https://testnet.zulunetwork.io"]
-        self.wallet_operation_list = ["confirm", "cancel","signpay", "sign"]
+        self.wallet_operation_list = ["confirm", "cancel", "switchnet", "signpay", "sign"]
+        self.ignored_exceptions=(NoSuchElementException, StaleElementReferenceException,)
 
     def get_xpath_ele(self, ele):
         if ele:
@@ -116,18 +119,23 @@ class SeleniumTask(PostGressDB):
             return unicodedata.normalize('NFKD', val).strip()
         return ""
 
-    def wait_for_element(self, findby, findvalue, rt, eles=False):
+    def wait_for_element(self, findby, findvalue, val, rt, eles=False, operation="click"):
         for _ in range(rt):
             try:
                 # if operation == "click":
                 #     return self.wait.until(EC.element_to_be_clickable((findby, findvalue)))
                 # return self.driver.find_elements(findby, findvalue) if eles else self.wait.until(EC.presence_of_element_located((findby, findvalue)))
-                return self.driver.find_elements(findby, findvalue) if eles else self.wait.until(EC.element_to_be_clickable((findby, findvalue)))
+                if operation == "click":
+                    return self.driver.find_elements(findby, findvalue) if eles else self.wait.until(EC.element_to_be_clickable((findby, findvalue)))
+                else:
+                    WebDriverWait(self.driver, self.wait_time, ignored_exceptions=self.ignored_exceptions).until(EC.presence_of_element_located((findby, findvalue))).click()
+                    return True
             except Exception as e:
                 self.logger.debug("retry get value again: %s" % findvalue)
                 self.logger.debug("error message: %s" % e)
                 self.wait_input()
-        self.logger.error("cannot find the element with value: %s" % findvalue)
+        if val != "skip":
+            self.logger.error("cannot find the element with value: %s" % findvalue)
         return
 
     def get_proxy_by_profile(self, profile_id):
@@ -156,9 +164,9 @@ class SeleniumTask(PostGressDB):
         ### running task in new tab
         if self.task_handle:
             self.driver.switch_to.window(self.task_handle)
-        self.driver.execute_script('''window.open("%s", "%s");''' % (self.google_url, '_blank'))
+        self.driver.execute_script('''window.open("%s", "%s");''' % (self.new_url, '_blank'))
         self.wait_page_load()
-        return self.get_handle("Google")
+        return self.get_handle(self.new_title)
 
 
 class Wallets(MouseTask, SeleniumTask):
@@ -183,7 +191,7 @@ class Wallets(MouseTask, SeleniumTask):
         self.logger.debug("new wallet handle is: %s" % wall_handle)
 
         for extension in extensions:
-            # if extension.get("id") != "nkbihfbeogaeaoehlefnkodbefgpgknn":
+            # if extension.get("id") != "dmkamcknogkgcdfhhbddcghachkejeap":
             #     continue
             res = self.login_wallet_task(extension)
             if not res:
@@ -205,30 +213,38 @@ class Wallets(MouseTask, SeleniumTask):
         self.logger.debug("execute mouse task step: %s" % findvalue)
         return self.execute_task_step(json.loads(findvalue))
 
+    def reset_last_net(self, wallet_val):
+        if self.last_net == wallet_val:
+            return True
+        self.last_net = wallet_val
+        return
+
     def handle_wallet(self, step):
         wallet_operation = step.get('findby')
         wallet_id        = step.get('findvalue')
+        wallet_val       = step.get('val')
+
         wallet_task_steps = self.sql_info(wallet_steps_select_sql, (wallet_id, wallet_operation))
 
         self.logger.info("wait for a moment to switch handle: %s..." % wallet_operation)
         handle_res = None
         if wallet_operation in self.wallet_operation_list:
-            wallet_val = wallet_task_steps[-1].get('val')
+            switch_handle = wallet_task_steps[-1].get('val')
             self.wait_wallet()
             for _ in range(self.wait_handle):
-                handle_res = self.get_handle(wallet_val)
+                handle_res = self.get_handle(switch_handle)
                 if handle_res:
-                    self.logger.debug("succeed switch to wallet: %s handle..." % wallet_val)
+                    self.logger.debug("succeed switch to wallet: %s handle..." % switch_handle)
                     break
                 self.wait_input()
+            if wallet_operation == "switchnet":
+                self.reset_last_net(wallet_val)
         elif wallet_operation == "switch":
-            wallet_val    = step.get('val')
-            if self.last_net == wallet_val:
+            res = self.reset_last_net(wallet_val)
+            if res:
                 self.logger.info("wallet network already switched, no need to switch...")
                 return True
-            self.last_net = wallet_val
-            handle_res    = self.get_new_handle()
-
+            handle_res = self.get_new_handle()
             ### replace the val for switch
             switch_search  = wallet_task_steps[-1]['findvalue'] % ("switch/%s" % wallet_val)
             wallet_task_steps[-1]['findvalue'] = switch_search
@@ -255,6 +271,7 @@ class Wallets(MouseTask, SeleniumTask):
 class WebTask(BitBrowser, Wallets):
     def __init__(self) -> None:
         super().__init__()
+        self.split_str = ";;"
         self.cur_dir = self.get_cur_dir(__file__)
 
     def get_proxy_by_user(self, user):
@@ -292,16 +309,16 @@ class WebTask(BitBrowser, Wallets):
         for task_ele in task_eles:
             try:
                 task_ele.click()
-                self.wait_input()
+                self.wait_input(3, 5)
             except Exception as e:
                 ### to do check fall back task, if exist perform fall back task
                 self.logger.error(e)
                 self.wait_page_load()
-
-            res = self.exe_steps(fall_back_steps)
-            if not res:
-                return
-            self.wait_input()
+            if fall_back_steps:
+                res = self.exe_steps(fall_back_steps)
+                if not res:
+                    return
+                self.wait_input(3, 5)
         return True
 
     def exe_step(self, step):
@@ -311,11 +328,11 @@ class WebTask(BitBrowser, Wallets):
         subtask   = step.get('subtask')
         val       = step.get('val')
         retry_tmp = step.get('retry')
-        retry     = retry_tmp if retry_tmp else 4
+        retry     = retry_tmp if retry_tmp else self.r
         self.logger.info("start  step: %s" % findvalue)
 
         if operation == 'url':
-            for _ in range(4):
+            for _ in range(self.r):
                 try:
                     self.driver.get(findvalue)
                     break
@@ -329,12 +346,12 @@ class WebTask(BitBrowser, Wallets):
         elif operation == 'mouse':
             return self.handle_mouse(step)
         elif operation == "eles":
-            task_eles = self.wait_for_element(findby, findvalue, retry, eles=True)
+            task_eles = self.wait_for_element(findby, findvalue, val, retry, eles=True)
             if not task_eles:
                 return True if val == "skip" else False
             return self.handle_task_elements(task_eles, step)
         elif operation == "sleep":
-            wait_time = self.get_random_from_range(",", findvalue)
+            wait_time = self.get_random_from_range(self.split_str, findvalue)
             self.sleep(wait_time)
             return True
         elif operation == "close":
@@ -347,13 +364,17 @@ class WebTask(BitBrowser, Wallets):
         elif operation == "scroll":
             self.driver.execute_script('window.scrollBy(0, %s)' % findvalue)
             return True
+        elif operation == "presence":
+            self.wait_input()
+            # self.save_page_to_local("presence.html")
+            return self.wait_for_element(findby, findvalue, val, retry, operation=operation)
 
-        task_ele = self.wait_for_element(findby, findvalue, retry)
+        task_ele = self.wait_for_element(findby, findvalue, val, retry)
 
         if not task_ele:
             return True if val == "skip" else False
 
-        if operation == 'click':
+        if operation == "click":
             try:
                 task_ele.click()
                 self.wait_input()
@@ -368,7 +389,7 @@ class WebTask(BitBrowser, Wallets):
             if subtask == "login":
                 val = self.wallet_pass
             elif ';;' in val:
-                val = self.get_random_from_range(";;", val)
+                val = self.get_random_from_range(self.split_str, val)
             for v in str(val):
                 task_ele.send_keys(v)
                 self.sleep(self.INPUT_TIME)
@@ -399,7 +420,7 @@ class WebTask(BitBrowser, Wallets):
         self.logger.info("all steps finished...")
         return True
 
-    def handle_sub_tasks(self, other_sub_exe_task, sub_task):
+    def handle_sub_oth_tasks(self, other_sub_exe_task, sub_task):
         ### get times list
         times_list = list({oset["times"] for oset in other_sub_exe_task})
         self.logger.info("get times list for sub task: %s, times list: %s" % (sub_task, times_list))
@@ -413,23 +434,29 @@ class WebTask(BitBrowser, Wallets):
                     return
         return True
 
+    def handle_sub_tasks(self, task_name, task_list):
+        self.logger.info("execute task: %s, task: %s" % (task_name, task_list))
+        res = self.exe_steps(task_list)
+        if not res:
+            self.logger.error("failed execute task: %s, task: %s" % (task_name, task_list))
+
     def exe_sub_tasks(self, task_name):
         task_sub_steps = self.sql_info(task_sub_select_sql, (self.profile_id, task_name))
         self.logger.debug("exe_sub_tasks: %s" % task_sub_steps)
 
         pre_sub_task = []
         oth_sub_task = []
+        end_sub_task = []
         for st in task_sub_steps:
             if st.get('times') == 0:
                 pre_sub_task.append(st)
+            elif st.get('times') == -1:
+                end_sub_task.append(st)
             else:
                 oth_sub_task.append(st)
 
         ### execute pre sub task
-        self.logger.info("execute task: %s, pre task: %s" % (task_name, pre_sub_task))
-        res = self.exe_steps(pre_sub_task)
-        if not res:
-            self.logger.error("failed execute task: %s, pre task: %s" % (task_name, pre_sub_task))
+        self.handle_sub_tasks(task_name, pre_sub_task)
 
         ### execute oth sub task, shuffle the sub task, random select one of it
         other_list = list({ost["subtask"] for ost in oth_sub_task})
@@ -437,7 +464,7 @@ class WebTask(BitBrowser, Wallets):
         sub_failed_count = 0
         for ost in self.get_random_items(other_list):
 
-            # if ost in ["add", "kappa"]:
+            # if ost not in ["swap"]:
             #     continue
 
             self.driver.switch_to.window(self.task_handle)
@@ -449,7 +476,7 @@ class WebTask(BitBrowser, Wallets):
                     other_sub_exe_task.append(tss)
 
             self.logger.debug("other  task list: %s" % other_sub_exe_task)
-            res = self.handle_sub_tasks(other_sub_exe_task, ost)
+            res = self.handle_sub_oth_tasks(other_sub_exe_task, ost)
 
             if not res:
                 sub_failed_count += 1
@@ -458,13 +485,17 @@ class WebTask(BitBrowser, Wallets):
 
             self.logger.info("finish execute task: %s, other task: %s" % (task_name, ost))
 
+        ### execute end sub task
+        if end_sub_task:
+            self.handle_sub_tasks(task_name, end_sub_task)
+
         return sub_failed_count != len(other_list)
 
     def run_tasks_by_profile(self, tasks):
         ### shuffle the task
         for task in self.get_random_items(tasks):
             task_name = task.get('name')
-            # if task_name != "ZULU":
+            # if task_name != "gmeow":
             #     continue
             self.logger.info("start  profile: %s, task: %s" % (self.profile_id, task_name))
             res = self.exe_sub_tasks(task_name)
@@ -532,6 +563,8 @@ class WebTask(BitBrowser, Wallets):
             profile_item = self.get_profile()
             self.wallet_pass = profile_item.get('pass')
 
+            # self.last_net = "zircuit"
+            # self.last_net = "morph holesky"
             ### login to wallets first...
             log_wallet = self.login_wallets(extensions)
             if not log_wallet:
@@ -548,11 +581,11 @@ class WebTask(BitBrowser, Wallets):
             ### create new tab for login & running tasks
             self.task_handle = self.get_new_handle()
             if not self.task_handle:
-                break
+                self.logger.error("get  tasks handle failed, try next profile")
+                continue
             self.know_handle.append(self.task_handle)
             self.logger.info("new  tasks handle is: %s" % self.task_handle)
 
-            # self.last_net = "morph holesky"
             self.run_tasks_by_profile(tasks)
 
             ### all task finished for current profile, close the browser
