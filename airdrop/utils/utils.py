@@ -12,17 +12,15 @@ import psutil
 import random
 import logging
 import platform
-import unicodedata
 import pyperclip
 import pyautogui
-import psycopg2
-import webbrowser
-import psycopg2.extras
 import threading
+import webbrowser
+import psycopg2
+import psycopg2.extras
 
 from os import path
 from logging import handlers
-from datetime import datetime
 from configparser import ConfigParser
 
 
@@ -34,6 +32,11 @@ tasks_select_sql        =  "SELECT distinct name FROM tasks where name not in ('
 class InitConf():
     def __init__(self) -> None:
         self.pf               = platform.system()
+        # self.new_url          = "chrome://version/"
+        # self.new_url          = "chrome://settings/"
+        # self.new_title        = "Settings"
+        # self.new_url          = "http://192.168.1.6/login.html"
+        # self.new_title        = "Login"
         self.new_url          = "https://www.bing.com"
         self.new_title        = "Bing"
 
@@ -43,8 +46,8 @@ class InitConf():
         self.log_dir          = self.get_log_path("./logs/")
         self.logger           = self.get_logger(self.get_log_name(__file__))
 
-        self.MINS             = 1.0
-        self.MAXS             = 2.0
+        self.MINS             = 0.8
+        self.MAXS             = 1.5
         self.INPUT_TIME       = 0.1
         self.wait_time        = 5
         self.wait_handle      = 15
@@ -53,12 +56,12 @@ class InitConf():
         self.confidence       = 0.9
         self.r                = 4
 
+        self.split_str        = ";;"
         self.wallets_pre      = ["meta_", "okx_"]
         self.wallets_not      = ["wallets", "switch"]
         self.RLIST            = [",", "-"]
         self.JSON_ID          = '{"id": "%s"}'
 
-        self.CHROME_EXTENSION = "chrome-extension://%s/%s.html"
         self.position         = ["0,0","%s,0" % str(int(self.getMWH()[0])/2)]
         self.browser          = None
         self.browser_close    = None
@@ -93,6 +96,15 @@ class InitConf():
         logger.addHandler(log_handler)
         logger.setLevel(self.log_level)
         return logger
+
+    def handle_function(self, parameter, *args, **kwargs):
+        call_func = 'handle_' + parameter
+        if hasattr(self, call_func):
+            self.logger.debug("perfrom handle function: %s" % call_func)
+            res = getattr(self, call_func)(*args, **kwargs)
+            return res
+        else:
+            self.logger.error("handle function not exist: %s" % call_func)
 
     def get_otp(self, secret):
         # secret = 'MDANW36JHNV3EOBM'
@@ -209,6 +221,7 @@ class InitConf():
         self.logger.info('finish open url')
 
 
+
 class MouseTask(InitConf):
     def __init__(self) -> None:
         super().__init__()
@@ -276,7 +289,7 @@ class MouseTask(InitConf):
             except:
                 self.wait_input()
         if not s:
-            self.logger.error("cannot get image location")
+            self.logger.info("cannot get image location")
         return None
 
     def execute_step(self, o, v, s, r):
@@ -425,4 +438,6 @@ class PostGressDB(InitConf):
     def get_profile(self):
         profile_item = self.sql_info(profile_select_sql, (self.profile_id,))
         return profile_item[0] or None
+
+
 
