@@ -27,6 +27,7 @@ from configparser import ConfigParser
 profile_select_sql      =  "SELECT * FROM profiles where profile=%s;"
 extensions_select_sql   =  "SELECT * FROM extensions;"
 tasks_select_sql        =  "SELECT distinct name FROM tasks where name not in ('metamask','unisat','keplr','fallback');"
+records_select_sql      = 'SELECT * FROM records where task=%s;'
 
 
 class InitConf():
@@ -435,9 +436,12 @@ class PostGressDB(InitConf):
     def get_extensions(self):
         return self.sql_info(extensions_select_sql)
 
-    def get_profile(self):
-        profile_item = self.sql_info(profile_select_sql, (self.profile_id,))
+    def get_profile(self, profile_id):
+        profile_item = self.sql_info(profile_select_sql, (profile_id,))
         return profile_item[0] or None
+
+    def get_records(self, task_name):
+        return self.sql_info(records_select_sql, (task_name,))
 
 
 

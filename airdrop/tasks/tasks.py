@@ -24,8 +24,8 @@ from selenium.common.exceptions import StaleElementReferenceException
 from airdrop.utils.utils import InitConf, MouseTask, PostGressDB
 
 
-profiles_select_sql     =  "SELECT * FROM profiles;"
-task_sub_select_sql     =  '''
+profiles_select_sql     =   'SELECT * FROM profiles;'
+task_sub_select_sql     =   '''
                             SELECT 
                                 t.id        id,
                                 t.name      name,
@@ -40,10 +40,24 @@ task_sub_select_sql     =  '''
                                 i.retry     retry,
                                 i.fallback  fallback
                             FROM tasks t left join inputs i on t.id=i.task and (i.profile=%s or i.profile is null) where t."name"=%s order by t.id;
-                        '''
-# task_sub_select_sql     = 'SELECT * FROM tasks t left join inputs i on t.id=i.task and (i.profile=%s or i.profile is null) where t."name"=%s order by t.id;'
-tasks_select_sql        = 'SELECT * FROM tasks t where name=%s and subtask=%s order by t.id;'
-wallet_steps_select_sql = 'SELECT * FROM tasks t left join inputs i on t.id=i.task left join extensions e on t."name"=e."name" where e.id=%s and t.subtask=%s order by t.id;'
+                            '''
+tasks_select_sql        =   '''
+                            SELECT 
+                                t.id        id,
+                                t.name      name,
+                                t.subtask   subtask,
+                                t.times     times,
+                                t.findby    findby,
+                                t.findvalue findvalue,
+                                t.operation operation,
+                                i.task      task,
+                                i.profile   profile,
+                                i.val       val,
+                                i.retry     retry,
+                                i.fallback  fallback
+                            FROM tasks t left join inputs i on t.id=i.task where name=%s and subtask=%s order by t.id;
+                            '''
+wallet_steps_select_sql =   'SELECT * FROM tasks t left join inputs i on t.id=i.task left join extensions e on t."name"=e."name" where e.id=%s and t.subtask=%s order by t.id;'
 
 
 class ChromeBrowser(InitConf):
@@ -224,14 +238,17 @@ class SeleniumTask(MouseTask):
                 self.driver.switch_to.window(handle)
                 cur_title = self.driver.title
                 self.logger.debug("current handle: %s, title %s" % (handle, cur_title))
-                if cur_title == handle_title or (not handle_title and cur_title not in self.know_titles):
+                if cur_title == handle_title:
                     return handle
+                elif not handle_title and cur_title not in self.know_titles:
+                    self.driver.close()
+                    self.driver.switch_to.window(self.task_handle)
             except:
                 ### some handle get title failed, append this handle to known handle then continue to next handle to get the target handle
                 self.logger.info("failed switch handle: %s" % handle_title)
                 self.know_handle.append(handle)
                 continue
-        return False
+        return False if handle_title else True
 
     def get_handle_res(self, switch_handle):
         for _ in range(self.wait_handle):
@@ -275,12 +292,7 @@ class SeleniumTask(MouseTask):
         return True
 
     def handle_close(self, **kwargs):
-        new_handle = self.get_handle_res(None)
-        if not new_handle:
-            return
-        self.driver.close()
-        self.driver.switch_to.window(self.task_handle)
-        return True
+        return self.get_handle_res(None)
 
     def handle_scroll(self, findvalue, **kwargs):
         self.driver.execute_script('window.scrollBy(0, %s)' % findvalue)
@@ -446,13 +458,15 @@ class WebTask(Wallets, SeleniumTask, BitBrowser):
         if not task_ele:
             return True if val == "skip" else False
 
-        res = self.handle_operation(operation, task_ele, subtask, val)
-        if not res:
+        try:
+            res = self.handle_operation(operation, task_ele, subtask, val)
+        except Exception as e:
+            self.logger.error(e)
             return
 
         self.wait_input()
         self.logger.debug("finish step: %s" % findvalue)
-        return True
+        return res
 
     def exe_steps(self, steps):
         ### need to switch to tasks tab, already change it in wallet
@@ -541,8 +555,14 @@ class WebTask(Wallets, SeleniumTask, BitBrowser):
         ### shuffle the task
         for task in self.get_random_items(tasks):
             task_name = task.get('name')
-            # if task_name not in ["morphl2"]:
+            # if task_name not in ["xtremeverse"]:
             #     continue
+
+            ### check if task is failed
+            if self.get_records(task_name):
+                self.logger.error("task failed last time, check & reset the status: %s" % task_name)
+                continue
+
             self.logger.info("start  profile: %s, task: %s" % (self.profile_id, task_name))
             res = self.exe_sub_tasks(task_name)
             if not res:
@@ -570,7 +590,7 @@ class WebTask(Wallets, SeleniumTask, BitBrowser):
         for profile in self.get_random_items(profiles):
             ### TODO using multi thread to running profile
             self.profile_id = profile.get('id')
-            # if self.profile_id == '156665546fe14caf894d1f01565c862a':
+            # if self.profile_id != '156665546fe14caf894d1f01565c862a':
             #     continue
             self.logger.info("start  profile: %s" % self.profile_id)
             # profile_path = profile.get('path')
@@ -606,7 +626,7 @@ class WebTask(Wallets, SeleniumTask, BitBrowser):
             self.logger.debug("original window is: %s" % self.orig_handle)
             self.know_handle.append(self.orig_handle)
 
-            profile_item = self.get_profile()
+            profile_item = self.get_profile(self.profile_id)
             self.wallet_pass = profile_item.get('pass')
 
             # self.last_net = "zircuit"
