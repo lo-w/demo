@@ -12,29 +12,34 @@ import psutil
 import random
 import logging
 import platform
-import unicodedata
 import pyperclip
 import pyautogui
-import psycopg2
-import webbrowser
-import psycopg2.extras
 import threading
+import webbrowser
+import psycopg2
+import psycopg2.extras
 
 from os import path
 from logging import handlers
-from datetime import datetime
 from configparser import ConfigParser
 
 
 profile_select_sql      =  "SELECT * FROM profiles where profile=%s;"
 extensions_select_sql   =  "SELECT * FROM extensions;"
 tasks_select_sql        =  "SELECT distinct name FROM tasks where name not in ('metamask','unisat','keplr','fallback');"
+records_select_sql      = 'SELECT * FROM records where task=%s;'
 
 
 class InitConf():
     def __init__(self) -> None:
         self.pf               = platform.system()
-        self.google_url       = "https://www.google.com"
+        # self.new_url          = "chrome://version/"
+        # self.new_url          = "chrome://settings/"
+        # self.new_title        = "Settings"
+        # self.new_url          = "http://192.168.1.6/login.html"
+        # self.new_title        = "Login"
+        self.new_url          = "https://www.bing.com"
+        self.new_title        = "Bing"
 
         self.log_level        = logging.INFO
         self.log_ext          = ".log"
@@ -42,24 +47,26 @@ class InitConf():
         self.log_dir          = self.get_log_path("./logs/")
         self.logger           = self.get_logger(self.get_log_name(__file__))
 
-        self.MINS             = 1.0
-        self.MAXS             = 2.0
+        self.MINS             = 0.8
+        self.MAXS             = 1.5
         self.INPUT_TIME       = 0.1
-        self.wait_time        = 10
+        self.wait_time        = 5
         self.wait_handle      = 15
         self.WEB_PAGE_TIMEOUT = 30
 
         self.confidence       = 0.9
         self.r                = 4
 
+        self.split_str        = ";;"
         self.wallets_pre      = ["meta_", "okx_"]
         self.wallets_not      = ["wallets", "switch"]
         self.RLIST            = [",", "-"]
         self.JSON_ID          = '{"id": "%s"}'
 
-        self.CHROME_EXTENSION = "chrome-extension://%s/%s.html"
         self.position         = ["0,0","%s,0" % str(int(self.getMWH()[0])/2)]
         self.browser          = None
+        self.browser_close    = None
+        self.tweens           = [pyautogui.easeInOutQuart, pyautogui.easeInOutQuint, pyautogui.easeInOutSine, pyautogui.easeInOutExpo]
 
     def get_cur_dir(self, file_name):
         return os.path.dirname(os.path.abspath(file_name))
@@ -91,6 +98,15 @@ class InitConf():
         logger.setLevel(self.log_level)
         return logger
 
+    def handle_function(self, parameter, *args, **kwargs):
+        call_func = 'handle_' + parameter
+        if hasattr(self, call_func):
+            self.logger.debug("perfrom handle function: %s" % call_func)
+            res = getattr(self, call_func)(*args, **kwargs)
+            return res
+        else:
+            self.logger.error("handle function not exist: %s" % call_func)
+
     def get_otp(self, secret):
         # secret = 'MDANW36JHNV3EOBM'
         totp = pyotp.TOTP(secret)
@@ -100,13 +116,16 @@ class InitConf():
         time.sleep(sec)
 
     def get_round(self, mi, mx, decimal_places=2):
-        return round(random.uniform(float(mi), float(mx)), decimal_places)
+        return round(random.uniform(float(mi), float(mx)), int(decimal_places))
 
     def get_random_from_range(self, spl, val_string):
         val = val_string
         if spl in val_string:
             val_list = str(val_string).split(spl)
-            val = self.get_round(val_list[0], val_list[-1])
+            if len(val_list) > 2:
+                val = self.get_round(val_list[0], val_list[-1], val_list[-2])
+            else:
+                val = self.get_round(val_list[0], val_list[-1])
         return val
 
     def wait_input(self, mi=None, mx=None):
@@ -122,6 +141,9 @@ class InitConf():
 
     def get_random_items(self, items):
         return random.sample(items, len(items))
+
+    def choose_item_from_list(self, items):
+        return random.choice(items)
 
     def get_offset(self):
         ### x: width
@@ -191,7 +213,7 @@ class InitConf():
         browser_running = self.if_process_is_running_by_exename(self.browser_name)
 
         if not browser_running:
-            x=lambda: webbrowser.get(cpath).open(self.google_url)
+            x=lambda: webbrowser.get(cpath).open(self.new_url)
             threading.Thread(target=x).start()
             self.sleep(2)
 
@@ -199,9 +221,7 @@ class InitConf():
         self.sleep(3)
         self.logger.info('finish open url')
 
-    def close_browser(self):
-        if self.browser_close:
-            os.system(self.browser_close)
+
 
 class MouseTask(InitConf):
     def __init__(self) -> None:
@@ -239,7 +259,7 @@ class MouseTask(InitConf):
 
         x = lo.x + offset.get('x')
         y = lo.y + offset.get('y')
-        tween = pyautogui.easeInOutSine
+        tween = self.choose_item_from_list(self.tweens)
 
         if o == 6:
             pyautogui.moveTo(x, y, duration=dura,tween=tween)  # Move the mouse to the specified location.
@@ -270,7 +290,7 @@ class MouseTask(InitConf):
             except:
                 self.wait_input()
         if not s:
-            self.logger.error("cannot get image location")
+            self.logger.info("cannot get image location")
         return None
 
     def execute_step(self, o, v, s, r):
@@ -314,7 +334,7 @@ class MouseTask(InitConf):
         if not vs:
             self.logger.error("validate failed...")
             return
-        self.logger.info("start  mouse step: %s" % es)
+        self.logger.debug("start  mouse step: %s" % es)
         result = self.execute_step(o, v, s, r)
         if not result:
             return
@@ -361,6 +381,10 @@ class MouseTask(InitConf):
             if not res:
                 return
         return self.execute_repeat_task(ets) if rep else True
+
+    def close_webbrowser(self):
+        if self.browser_close:
+            os.system(self.browser_close)
 
 
 class PostGressDB(InitConf):
@@ -412,7 +436,12 @@ class PostGressDB(InitConf):
     def get_extensions(self):
         return self.sql_info(extensions_select_sql)
 
-    def get_profile(self):
-        profile_item = self.sql_info(profile_select_sql, (self.profile_id,))
+    def get_profile(self, profile_id):
+        profile_item = self.sql_info(profile_select_sql, (profile_id,))
         return profile_item[0] or None
+
+    def get_records(self, task_name):
+        return self.sql_info(records_select_sql, (task_name,))
+
+
 
