@@ -3,6 +3,13 @@
 '''
 @File    :   utils.py
 @Author  :   renjun
+
+required lib:
+pip install pyotp
+pip install pyperclip
+pip install pyautogui
+pip install psycopg2-binary
+
 '''
 import os
 import time
@@ -192,19 +199,29 @@ class InitConf():
                 return True
         return False
 
-    def get_chrome_path(self, chrome):
+    def get_browser_path(self):
         cpath = ""
-        self.browser_name = "chrome" if chrome else "msedge"
+        self.browser_name = self.browser
 
         if "MacOS" in self.pf:
-            cpath = '/Applications/Google Chrome.app'
+            if self.browser == "chrome":
+                cpath = '/Applications/Google Chrome.app'
+            elif self.browser == "msedge":
+                cpath = '/Applications/Microsoft Edge.app'
+            self.browser_close = ""
             return 'open -a %s' % cpath + ' %s' if os.path.exists(cpath) else None
         elif "Windows" in self.pf:
-            cpath = 'C:/Program Files/Google/Chrome/Application/chrome.exe' if chrome else 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
+            if self.browser == "chrome":
+                cpath = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+            elif self.browser == "msedge":
+                cpath = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
             self.browser_name += ".exe"
             self.browser_close = "taskkill /f /im " + self.browser_name
         elif "Linux" in self.pf:
-            cpath = '/usr/bin/google-chrome' if chrome else '/usr/bin/microsoft-edge-stable'
+            if self.browser == "chrome":
+                cpath = '/usr/bin/google-chrome'
+            elif self.browser == "msedge":
+                cpath = '/usr/bin/microsoft-edge-stable'
             self.browser_close = "pkill " + self.browser_name
         return cpath + ' %s' if os.path.exists(cpath) else None
 
@@ -220,7 +237,6 @@ class InitConf():
         webbrowser.get(cpath).open(url)
         self.sleep(3)
         self.logger.info('finish open url')
-
 
 
 class MouseTask(InitConf):
@@ -277,7 +293,7 @@ class MouseTask(InitConf):
                 return True if isinstance(v, int) else False
             elif o == 5:
                 return True if isinstance(v, str) else False
-            elif  o == 6 or o == 7:
+            elif  5 < o < 10:
                 return True
         return False
 
@@ -293,7 +309,7 @@ class MouseTask(InitConf):
             self.logger.info("cannot get image location")
         return None
 
-    def execute_step(self, o, v, s, r):
+    def execute_step(self, o, v, s, r, u):
         if o == 0:
             mi = v-2 if v > 2 else 0
             self.wait_input(mi, v)
@@ -313,6 +329,10 @@ class MouseTask(InitConf):
             self.wait_input()
         elif o == 7:
             pyautogui.hotkey(v)
+        elif o == 9:
+            if u:
+                self.cpath = " ".join((self.cpath, "--user-data-dir=%s" % u))
+            self.open_url(self.cpath, v)
         else:
             return
         return True
@@ -322,7 +342,7 @@ class MouseTask(InitConf):
         v = es.get('v')
         s = es.get('s')
         r = es.get('r')
-
+        u = es.get('u')
         for wallet_pre in self.wallets_pre:
             if str(v).startswith(wallet_pre):
                 v = "wallets/%s" % v
@@ -335,7 +355,7 @@ class MouseTask(InitConf):
             self.logger.error("validate failed...")
             return
         self.logger.debug("start  mouse step: %s" % es)
-        result = self.execute_step(o, v, s, r)
+        result = self.execute_step(o, v, s, r, u)
         if not result:
             return
         self.logger.debug("finish mouse step: %s" % es)

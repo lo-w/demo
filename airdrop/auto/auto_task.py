@@ -26,26 +26,22 @@ class AutoTask(MouseTask):
             if task.get("skip"):
                 continue
             name = task.get("name")
-            et = task.get("type")
             ets = task.get("ets")
             # print(self.log_dir)
+            self.browser = task.get("browser")
             self.logger.info("started  the task: %s" % name)
-            if et:
-                self.browser = task.get("chrome")
-                cpath = self.get_chrome_path(self.browser)
-
-                if not cpath:
-                    self.logger.error("no chrome/edge found in system, try next task!")
+            if self.browser:
+                self.cpath = self.get_browser_path()
+                if not self.cpath:
+                    self.logger.error("browser cannot be found in system, try next task!")
                     continue
-                url = task.get("url")
-                self.open_url(cpath, url)
 
             result = self.execute_mouse_task(ets)
             if not result:
                 self.logger.error("execute task: %s failed, try next task!" % name)
                 continue
 
-            if et:
+            if self.browser:
                 self.logger.info("closing  the tab...")
                 self.execute_task_step({"o":7,"v":["ctrl","w"]})
 
