@@ -72,6 +72,8 @@ class ChromeBrowser(InitConf):
             }
         ]
 
+    def check_browser(self):
+        return True
 
 class BitBrowser(InitConf):
     def __init__(self) -> None:
@@ -101,9 +103,6 @@ class BitBrowser(InitConf):
     def check_bit_browser(self):
         BIT_URL = self.get_bit_url()
         return BIT_URL or False
-
-    def pre_check(self):
-        return self.check_bit_browser()
 
 
 class Wallets( MouseTask, PostGressDB):
@@ -299,7 +298,7 @@ class SeleniumTask(MouseTask):
         return True
 
 
-class WebTask(Wallets, SeleniumTask, BitBrowser):
+class WebTask(Wallets, SeleniumTask, BitBrowser, ChromeBrowser):
     def __init__(self) -> None:
         super().__init__()
         self.cur_dir = self.get_cur_dir(__file__)
@@ -594,7 +593,7 @@ class WebTask(Wallets, SeleniumTask, BitBrowser):
             #     continue
             self.logger.info("start  profile: %s" % self.profile_id)
             # profile_path = profile.get('path')
-            # profile_extensions = ",".join([os.path.join(profile_path,"Extensions",extension) for extension in extensions])
+            # profile_extensions = ",".join([os.path.join(profile_path,"Extensions", extension) for extension in extensions])
             # proxy = get_proxy_by_profile(profile_id)
 
             res = self.open_browser(self.profile_id)
@@ -660,6 +659,10 @@ class WebTask(Wallets, SeleniumTask, BitBrowser):
             self.task_handle = ""
             # self.position.append(position)
             self.close_browser(self.profile_id)
+
+    def pre_check(self):
+        # return self.check_bit_browser()
+        return self.check_browser()
 
     def run_web_task(self):
         if not self.pre_check():
