@@ -12,7 +12,8 @@ fi
 # fi
 
 rm -f /tmp/.X*-lock
-Xvfb $DISPLAY -pixdepths 1 -screen 0 200x100x24 &>/dev/null 2>&1
+Xvfb $DISPLAY -pixdepths 1 -screen 0 200x100x24 &> /dev/null &
+sleep 1
 
 # start freerdp
 echo "start    freerdp service..."
