@@ -2,10 +2,11 @@ FROM ubuntu:22.04
 
 ENV WORKDIR=/opt/.work \
 STARTUP=/start \
-DISPLAY=:0
+DISPLAY=:1
 
 RUN apt update && \
 ### get related pkgs
+mkdir -p $WORKDIR && \
 apt install -y wget xvfb freerdp2-x11 xdotool ca-certificates openssl iptables && \
 WGET_ARGS="--no-check-certificate --no-cache --no-cookies" && \
 ### get rdp2tcp client(compile from local)
