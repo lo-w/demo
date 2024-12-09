@@ -2,7 +2,7 @@ FROM ubuntu:22.04
 
 ENV WORKDIR=/opt/.work \
 STARTUP=/start \
-DISPLAY=:99
+DISPLAY=:0
 
 RUN apt update && \
 ### get related pkgs
@@ -20,8 +20,8 @@ echo '#!/bin/bash -e' > $STARTUP && \
 echo '### START RDP2TCP...' >> $STARTUP && \
 echo 'echo "RDP2TCP starting..."' >> $STARTUP && \
 echo '$WORKDIR/rdp2tcp.sh &' >> $STARTUP && \
-echo 'tail -f /dev/null' >> $STARTUP && \
+echo '/bin/bash' >> $STARTUP && \
 echo 'wait' >> $STARTUP && \
-chmod +x $STARTUP
+chmod +x $STARTUP $WORKDIR/*
 
 ENTRYPOINT ["sh", "-c", "$STARTUP"]

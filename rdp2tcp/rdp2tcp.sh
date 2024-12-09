@@ -2,9 +2,16 @@
 
 if [[ -z $RHOST || -z $RUSER || -z $RPASS || -z $RDP2TCP || -z $REMOTE ]]; then
     echo "missing needed params..."
-    return
+    exit 2
 fi
 
+$(ping -w 1 -qc 1 $RHOST 2>&1 >/dev/null)
+if [[ $? != 0 ]];then
+    echo "$RHOST unreachable..." 
+    exit 2
+fi
+
+rm -f /tmp/.X*-lock
 Xvfb $DISPLAY -pixdepths 1 -screen 0 200x100x24 >/dev/null 2>&1 & XPID=$!;
 
 # start freerdp
@@ -24,7 +31,7 @@ done
 
 if [[ -z $freerdp_window ]]; then
     echo "xfreerdp started failed..."
-    return
+    exit 2
 fi
 
 # press enter to login window
@@ -42,7 +49,7 @@ exec 3<&-
 
 if [[ $(echo $REPLY | awk '/registered/{print $NF}') != "registered" ]]; then
     echo "rdp2tcp register failed..."
-    return
+    exit 2
 fi
 
 # start remote process
