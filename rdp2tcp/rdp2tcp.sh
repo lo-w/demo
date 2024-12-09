@@ -9,7 +9,11 @@ Xvfb $DISPLAY -pixdepths 1 -screen 0 200x100x24 >/dev/null 2>&1 & XPID=$!;
 
 # start freerdp
 echo "start    freerdp service..."
-xfreerdp /v:"$RHOST" /u:"$RUSER" /p:"$RPASS" /cert:tofu /smart-sizing:35x30 -themes -wallpaper +compression /compression-level:2 /rdp2tcp:$WORKDIR/client &> /dev/null &
+if [[ -z $DOMAIN ]]; then
+    xfreerdp /cert:tofu /smart-sizing:35x30 -themes -wallpaper +compression /compression-level:2 /rdp2tcp:$WORKDIR/client /v:"$RHOST" /u:"$RUSER" /p:"$RPASS" &
+else
+    xfreerdp /cert:tofu /smart-sizing:35x30 -themes -wallpaper +compression /compression-level:2 /rdp2tcp:$WORKDIR/client /v:"$RHOST" /u:"$RUSER" /p:"$RPASS" /d:"$DOMAIN" &
+fi
 
 # check freerdp
 for i in {1..10}; do
@@ -22,6 +26,7 @@ if [[ -z $freerdp_window ]]; then
     echo "xfreerdp started failed..."
     return
 fi
+
 # press enter to login window
 xdotool key --window $freerdp_window Return &> /dev/null
 

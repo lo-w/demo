@@ -19,9 +19,9 @@ wget $WGET_ARGS -q $RDP2TCP_START  -P $WORKDIR && \
 echo '#!/bin/bash -e' > $STARTUP && \
 echo '### START RDP2TCP...' >> $STARTUP && \
 echo 'echo "RDP2TCP starting..."' >> $STARTUP && \
-echo '$WORKDIR/rdp2tcp.sh &> /dev/null &' >> $STARTUP && \
-echo 'wait -n' >> $STARTUP && \
-echo 'exit $?' >> $STARTUP && \
+echo '$WORKDIR/rdp2tcp.sh &' >> $STARTUP && \
+echo 'tail -f /dev/null' >> $STARTUP && \
+echo 'wait' >> $STARTUP && \
 chmod +x $STARTUP
 
 ENTRYPOINT ["sh", "-c", "$STARTUP"]
