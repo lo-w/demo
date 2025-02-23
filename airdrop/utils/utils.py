@@ -29,24 +29,23 @@ import psycopg2.extras
 from os import path
 from logging import handlers
 from configparser import ConfigParser
+from abc import abstractmethod
 
+profiles_select_sql       = "SELECT * FROM profiles;"
+profile_select_sql        = "SELECT * FROM profiles where profile=%s;"
+extensions_select_sql     = "SELECT * FROM extensions where login is True;"
+tasks_select_sql          = "SELECT distinct name FROM tasks where name not in ('metamask','unisat','keplr','fallback');"
 
-profile_select_sql      =  "SELECT * FROM profiles where profile=%s;"
-extensions_select_sql   =  "SELECT * FROM extensions;"
-tasks_select_sql        =  "SELECT distinct name FROM tasks where name not in ('metamask','unisat','keplr','fallback');"
-records_select_sql      = 'SELECT * FROM records where task=%s;'
 
 
 class InitConf():
     def __init__(self) -> None:
         self.pf               = platform.system()
-        # self.new_url          = "chrome://version/"
-        # self.new_url          = "chrome://settings/"
-        # self.new_title        = "Settings"
-        # self.new_url          = "http://192.168.1.6/login.html"
-        # self.new_title        = "Login"
+        # self.open_page      = "chrome://version/"
+        # self.new_title      = "Version"
+        self.open_page        = "chrome://version/"
         self.new_url          = "https://www.bing.com"
-        self.new_title        = "Bing"
+        self.new_title        = "Microsoft Bing"
 
         self.log_level        = logging.INFO
         self.log_ext          = ".log"
@@ -101,7 +100,8 @@ class InitConf():
         )
         log_handler.setFormatter(formatter)
         logger = logging.getLogger()
-        logger.addHandler(log_handler)
+        if not logger.handlers:
+            logger.addHandler(log_handler)
         logger.setLevel(self.log_level)
         return logger
 
@@ -202,7 +202,6 @@ class InitConf():
     def get_browser_path(self):
         cpath = ""
         self.browser_name = self.browser
-
         if "MacOS" in self.pf:
             if self.browser == "chrome":
                 cpath = '/Applications/Google Chrome.app'
@@ -212,17 +211,18 @@ class InitConf():
             return 'open -a %s' % cpath + ' %s' if os.path.exists(cpath) else None
         elif "Windows" in self.pf:
             if self.browser == "chrome":
+                # "C:\Program Files\Google\Chrome\Application\chrome.exe"
                 cpath = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
             elif self.browser == "msedge":
                 cpath = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
             self.browser_name += ".exe"
-            self.browser_close = "taskkill /f /im " + self.browser_name
+            self.browser_close = f"taskkill /f /im {self.browser_name}"
         elif "Linux" in self.pf:
             if self.browser == "chrome":
                 cpath = '/usr/bin/google-chrome'
             elif self.browser == "msedge":
                 cpath = '/usr/bin/microsoft-edge-stable'
-            self.browser_close = "pkill " + self.browser_name
+            self.browser_close = f"pkill {self.browser_name}"
         return cpath + ' %s' if os.path.exists(cpath) else None
 
     def open_url(self, cpath, url):
@@ -238,6 +238,13 @@ class InitConf():
         self.sleep(3)
         self.logger.info('finish open url')
 
+    @abstractmethod
+    def exe_profile(self, extensions, tasks):
+        pass
+
+    @abstractmethod
+    def get_driver(self):
+        pass
 
 class MouseTask(InitConf):
     def __init__(self) -> None:
@@ -407,12 +414,15 @@ class MouseTask(InitConf):
             os.system(self.browser_close)
 
 
+
+
 class PostGressDB(InitConf):
     def __init__(self) -> None:
         super().__init__()
         self.cur_dir = self.get_cur_dir(__file__)
         dbconf = self.load_config(self.get_cur_path("database.ini"), "postgresql")
         conn = self.connect(dbconf)
+        conn.set_session(autocommit=True)
         self.cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) if conn else None
 
     def connect(self, config):
@@ -456,12 +466,16 @@ class PostGressDB(InitConf):
     def get_extensions(self):
         return self.sql_info(extensions_select_sql)
 
+    def get_profiles(self):
+        return self.sql_info(profiles_select_sql)
+
     def get_profile(self, profile_id):
         profile_item = self.sql_info(profile_select_sql, (profile_id,))
         return profile_item[0] or None
 
-    def get_records(self, task_name):
-        return self.sql_info(records_select_sql, (task_name,))
+    def get_records(self, records_sql, params):
+        res = self.sql_info(records_sql, params)
+        return res[0] if res else None
 
-
-
+    def update_records(self, update_record, params):
+        return self.sql_info(update_record, params, False)
