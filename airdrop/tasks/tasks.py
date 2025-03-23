@@ -12,7 +12,7 @@ import psutil
 import requests
 import unicodedata
 
-from datetime import datetime, date
+from datetime import datetime, timezone, timedelta
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
@@ -61,16 +61,16 @@ tasks_select_sql        =   '''
                             '''
 wallet_steps_select_sql =   'SELECT * FROM tasks t left join inputs i on t.id=i.task left join extensions e on t."name"=e."name" where e.id=%s and t.subtask=%s order by t.id;'
 
-records_select_by_task    = "SELECT * FROM records where profile=%s and task=%s;"
+records_select_by_task    = "SELECT * FROM records where profile=%s and task=%s and subtask is null;"
 records_select_by_subtask = "SELECT * FROM records where profile=%s and task=%s and subtask=%s;"
 
-# records_finish_by_task    = "UPDATE records set failed=False where profile=%s and task=%s;"
-records_finish_by_subtask = "UPDATE records set failed=False where profile=%s and task=%s and subtask=%s;"
-
-records_failed_by_task    = "UPDATE records set failed=True where profile=%s and task=%s;"
-records_failed_by_subtask = "UPDATE records set failed=True where profile=%s and task=%s and subtask=%s;"
+records_finish_by_task    = "UPDATE records set status=1 where profile=%s and task=%s;"
+records_finish_by_subtask = "UPDATE records set status=1 where profile=%s and task=%s and subtask=%s;"
+records_failed_by_task    = "UPDATE records set status=0 where profile=%s and task=%s;"
+records_failed_by_subtask = "UPDATE records set status=0 where profile=%s and task=%s and subtask=%s;"
 records_insert_by_task    = "INSERT INTO records(profile,task) values(%s, %s);"
 records_insert_by_subtask = "INSERT INTO records(profile,task,subtask) values(%s, %s, %s);"
+
 
 
 class ChromeBrowser(PostGressDB):
@@ -93,39 +93,6 @@ class ChromeBrowser(PostGressDB):
         if self.browser_close:
             os.system(self.browser_close)
 
-    def get_proxy_by_profile(self, profile_id):
-        return "socks://192.168.1.13:10808"
-
-    def run_profile(self, extensions, tasks):
-        profiles = self.get_profiles()
-        for profile in self.get_random_items(profiles):
-            self.profile_id = profile.get('profile')
-            directory = profile.get('directory')
-            if self.profile_id == '580cd51c8ff835db4ccba5514a461d14':
-                continue
-            self.logger.info("start  profile: %s" % self.profile_id)
-            self.chrome_options = Options()
-            self.chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
-            # self.chrome_options.add_argument('--no-sandbox')
-            # self.chrome_options.add_argument('--headless')
-            self.chrome_options.add_argument('--disable-gpu')
-            self.chrome_options.add_argument('--ignore-certificate-errors')
-            self.chrome_options.add_argument('--ignore-ssl-errors')
-            # self.chrome_options.add_argument('--disable-dev-shm-usage')
-            self.chrome_options.add_argument("--user-data-dir=%s" % os.path.join(self.user_data_dir, directory))
-            # self.chrome_options.add_experimental_option("debuggerAddress", res['data']['http'])
-            # self.driver = webdriver.Chrome(service=Service(executable_path=self.driver_path), options=self.chrome_options)
-            # self.driver_path.replace("%s", "")
-            self.driver = self.get_driver()
-            res = self.open_browser()
-            if not res:
-                self.logger.error("open profile: %s failed..." % self.profile_id)
-                continue
-
-            res = self.exe_profile(extensions, tasks)
-            if not res:
-                continue
-
     def check_get_proxy(self):
         return True
 
@@ -134,6 +101,46 @@ class ChromeBrowser(PostGressDB):
             "socks5": "192.168.1.9:10000"
         }
         return proxy
+
+    def get_proxy_by_profile(self, profile_id):
+        return "socks://192.168.1.13:10808"
+
+    def run_profile(self, profile, profile_check=True):
+        self.profile_id = profile.get('profile')
+        res = self.profile_pre_check(profile_check)
+        if not res:
+            return
+        directory = profile.get('directory')
+        # if self.profile_id != '0e0ced5774fe508072b34df1f972cae3':
+        #     return
+        self.logger.info(f"start  profile: {self.profile_id}")
+        self.chrome_options = Options()
+        self.chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+        # self.chrome_options.add_argument('--no-sandbox')
+        # self.chrome_options.add_argument('--headless')
+        self.chrome_options.add_argument('--disable-gpu')
+        self.chrome_options.add_argument('--ignore-certificate-errors')
+        self.chrome_options.add_argument('--ignore-ssl-errors')
+        # self.chrome_options.add_argument('--disable-dev-shm-usage')
+        self.chrome_options.add_argument(f"--user-data-dir={os.path.join(self.user_data_dir, directory)}")
+        # self.chrome_options.add_experimental_option("debuggerAddress", res['data']['http'])
+        # self.driver = webdriver.Chrome(service=Service(executable_path=self.driver_path), options=self.chrome_options)
+        # self.driver_path.replace("%s", "")
+        self.driver = self.get_driver()
+        res = self.open_browser()
+        if not res:
+            self.logger.error(f"open profile: {self.profile_id} failed...")
+            return
+
+        res = self.exe_profile()
+        self.known_handles = []
+        if not res:
+            self.logger.error(f"running profile: {self.profile_id} failed...")
+
+    def run_profiles(self):
+        profiles = self.get_profiles()
+        for profile in self.get_random_items(profiles):
+            self.run_profile(profile)
 
 
 class BitBrowser(PostGressDB):
@@ -166,46 +173,51 @@ class BitBrowser(PostGressDB):
         BIT_URL = self.get_bit_url()
         return BIT_URL or False
 
-    def run_profile(self, extensions, tasks):
+    def run_profile(self, profile):
+        self.profile_id = profile.get('id')
+        res = self.profile_pre_check()
+        if not res:
+            return
+        # if self.profile_id != '580cd51c8ff835db4ccba5514a461d14':
+        #     continue
+        self.logger.info(f"start  profile: {self.profile_id}")
+        # profile_path = profile.get('path')
+        # profile_extensions = ",".join([os.path.join(profile_path,"Extensions", extension) for extension in extensions])
+        # proxy = get_proxy_by_profile(profile_id)
+
+        res = self.open_browser(self.profile_id)
+        if not res['success']:
+            self.logger.error(f"open profile: {self.profile_id} failed...")
+            ### need to update the DB status which profile is failed
+            return
+
+        self.chrome_options = Options()
+        # position = self.get_position()
+        # chrome_options.add_argument("--window-position=%s" % position)
+        self.chrome_options.add_experimental_option("debuggerAddress", res['data']['http'])
+        self.driver_path = res['data']['driver']
+
+        # chrome_options.add_argument("--window-size=1280,720")
+        # chrome_options.add_argument("--disable-component-update")
+        # chrome_options.add_argument("--no-first-run")
+        # chrome_options.add_argument("--no-default-browser-check")
+        # chrome_options.add_argument("--password-store=basic")
+        # chrome_options.add_argument("--user-data-dir=%s" % profile_path)
+        # chrome_options.add_argument("--fingerprint-config=%s" % profile_path)
+        # chrome_options.add_argument("--load-extension=%s" % profile_extensions)
+        # chrome_options.add_argument("--proxy-server=%s" % proxy)
+        # profile_driver = webdriver.Chrome(service=Service(executable_path=executable_path), options=chrome_options)
+        self.driver = self.get_driver()
+        res = self.exe_profile()
+        if not res:
+            return
+
+    def run_profiles(self):
         profile_resp = self.get_bit_profiles()
         profiles = profile_resp.get('data').get('list')
         ### random select profile to execute
         for profile in self.get_random_items(profiles):
-            ### TODO using multi thread to running profile
-            self.profile_id = profile.get('id')
-            if self.profile_id != '580cd51c8ff835db4ccba5514a461d14':
-                continue
-            self.logger.info("start  profile: %s" % self.profile_id)
-            # profile_path = profile.get('path')
-            # profile_extensions = ",".join([os.path.join(profile_path,"Extensions", extension) for extension in extensions])
-            # proxy = get_proxy_by_profile(profile_id)
-
-            res = self.open_browser(self.profile_id)
-            if not res['success']:
-                self.logger.error("open profile: %s failed..." % self.profile_id)
-                ### need to update the DB status which profile is failed
-                continue
-
-            self.chrome_options = Options()
-            # position = self.get_position()
-            # chrome_options.add_argument("--window-position=%s" % position)
-            self.chrome_options.add_experimental_option("debuggerAddress", res['data']['http'])
-            self.driver_path = res['data']['driver']
-
-            # chrome_options.add_argument("--window-size=1280,720")
-            # chrome_options.add_argument("--disable-component-update")
-            # chrome_options.add_argument("--no-first-run")
-            # chrome_options.add_argument("--no-default-browser-check")
-            # chrome_options.add_argument("--password-store=basic")
-            # chrome_options.add_argument("--user-data-dir=%s" % profile_path)
-            # chrome_options.add_argument("--fingerprint-config=%s" % profile_path)
-            # chrome_options.add_argument("--load-extension=%s" % profile_extensions)
-            # chrome_options.add_argument("--proxy-server=%s" % proxy)
-            # profile_driver = webdriver.Chrome(service=Service(executable_path=executable_path), options=chrome_options)
-            self.driver = self.get_driver()
-            res = self.exe_profile(extensions, tasks)
-            if not res:
-                continue
+            self.run_profile(profile)
 
 
 class Wallets(MouseTask, PostGressDB):
@@ -221,17 +233,17 @@ class Wallets(MouseTask, PostGressDB):
 
     def login_wallet_task(self, extension):
         ext_id = extension.get("id")
-        self.logger.info("login to wallet: %s..." % ext_id)
+        self.logger.info(f"login to wallet: {ext_id}...")
         login_steps = self.sql_info(wallet_steps_select_sql, (ext_id, 'login'))
         return self.exe_steps(login_steps)
 
-    def login_wallets(self, extensions):
+    def login_wallets(self):
         wall_handle = self.get_new_handle()
-        self.logger.info("new wallet handle is: %s" % wall_handle)
+        self.logger.info(f"new wallet handle is: {wall_handle}")
         if not wall_handle:
             self.logger.error("get wallet handle failed...")
             return
-        for extension in extensions:
+        for extension in self.extensions:
             # if extension.get("id") != "dmkamcknogkgcdfhhbddcghachkejeap":
             #     continue
             res = self.login_wallet_task(extension)
@@ -255,15 +267,6 @@ class SeleniumTask(MouseTask):
         self.driver      = None
         self.wait        = None
         self.action      = None
-        self.profile_id  = ""
-        self.wallet_pass = ""
-        self.orig_handle = ""
-        self.task_handle = ""
-        self.wall_handle = ""
-        self.last_net    = ""
-        self.know_handle = []
-        self.know_titles = ["MetaMask","https://testnet.zulunetwork.io"]
-        self.wallet_operation_list = ["confirm", "cancel", "switchnet", "signpay", "sign"]
         self.ignored_exceptions=(NoSuchElementException, StaleElementReferenceException,)
 
     def get_driver(self):
@@ -286,7 +289,7 @@ class SeleniumTask(MouseTask):
         return ""
 
     def wait_for_element(self, findby, findvalue, val, retry, eles=False, operation=None):
-        self.logger.debug("wait_for_element findby: %s, findvalue: %s, retry:%s, operation: %s" % (findby, findvalue, retry, operation))
+        self.logger.debug(f"wait_for_element findby: {findby}, findvalue: {findvalue}, retry: {retry}, operation: {operation}")
         for _ in range(retry):
             try:
                 # if operation == "click":
@@ -302,11 +305,11 @@ class SeleniumTask(MouseTask):
                     WebDriverWait(self.driver, self.wait_time, ignored_exceptions=self.ignored_exceptions).until(EC.presence_of_element_located((findby, findvalue))).click()
                     return True
             except Exception as e:
-                self.logger.debug("retry get value again: %s" % findvalue)
-                self.logger.debug("error message: %s" % e)
+                self.logger.debug(f"retry get value again: {findvalue}")
+                self.logger.debug(f"error message: {e}")
                 self.wait_input()
         if val != "skip":
-            self.logger.error("cannot find the element with value: %s" % findvalue)
+            self.logger.error(f"cannot find the element with value: {findvalue}")
         return
 
     def element_click(self, ele):
@@ -325,35 +328,47 @@ class SeleniumTask(MouseTask):
             hf.write(self.driver.page_source)
 
     def get_handle(self, handle_title):
-        self.logger.debug("try to get handle with title: %s" % handle_title)
-        self.logger.debug("current known  handles: %s" % self.know_handle)
-        self.logger.debug("current window handles: %s" % self.driver.window_handles)
+        self.logger.debug(f"try to get handle with title: {handle_title}")
+        self.logger.debug(f"current known  handles: {self.known_handles}")
+        self.logger.debug(f"current window handles: {self.driver.window_handles}")
 
         for handle in self.driver.window_handles:
-            if handle in self.know_handle:
+            if handle in self.known_handles:
                 continue
             self.wait_input()
+            self.driver.switch_to.window(handle)
             try:
-                self.driver.switch_to.window(handle)
                 cur_title = self.driver.title
-                self.logger.debug("current handle: %s, title %s" % (handle, cur_title))
-                if handle_title in cur_title:
-                    return handle
-                elif not handle_title and cur_title not in self.know_titles:
-                    self.driver.close()
-                    self.driver.switch_to.window(self.task_handle)
             except:
                 ### some handle get title failed, append this handle to known handle then continue to next handle to get the target handle
-                self.logger.info("failed switch handle: %s" % handle_title)
-                self.know_handle.append(handle)
+                self.logger.debug(f"failed switch handle: {handle_title}")
+                self.known_handles.append(handle)
                 continue
+
+            self.logger.info(f"current handle: {handle}, title: {cur_title}")
+
+            con = False
+            for known_tile in self.known_titles:
+                if known_tile in cur_title:
+                    self.known_handles.append(handle)
+                    con = True
+                    break
+            if con:
+                continue
+
+            if not handle_title and (cur_title not in self.known_titles):
+                self.driver.close()
+                self.driver.switch_to.window(self.task_handle)
+            elif handle_title in cur_title:
+                return handle
+
         return False if handle_title else True
 
     def get_handle_res(self, switch_handle):
         for _ in range(self.wait_handle):
             handle_res = self.get_handle(switch_handle)
             if handle_res:
-                self.logger.info("succeed switch handle: %s" % switch_handle)
+                self.logger.info(f"succeed switch handle: {switch_handle}")
                 return handle_res
             self.wait_input()
         return
@@ -362,7 +377,7 @@ class SeleniumTask(MouseTask):
         ### running task in new tab
         if self.task_handle:
             self.driver.switch_to.window(self.task_handle)
-        self.driver.execute_script('''window.open("%s", "%s");''' % (self.new_url, '_blank'))
+        self.driver.execute_script(f'''window.open("{self.new_url}", "_blank");''')
         self.wait_wallet()
         return self.get_handle_res(self.new_title)
 
@@ -372,8 +387,8 @@ class SeleniumTask(MouseTask):
                 self.driver.get(findvalue)
                 break
             except Exception as e:
-                self.logger.error("failed to open url: %s..." % findvalue)
-        self.logger.info("wait for a moment to let url: %s load..." % findvalue)
+                self.logger.error(f"failed to open url: {findvalue}...")
+        self.logger.info(f"wait for a moment to let url: {findvalue} load...")
         self.wait_page_load()
         return True
 
@@ -382,7 +397,7 @@ class SeleniumTask(MouseTask):
             if not val and subtask == "login":
                 val = self.wallet_pass
                 findvalue = findvalue % val
-        self.logger.debug("execute mouse task step: %s" % findvalue)
+        self.logger.debug(f"execute mouse task step: {findvalue}")
         return self.execute_task_step(json.loads(findvalue))
 
     def handle_sleep(self, findvalue, **kwargs):
@@ -394,7 +409,7 @@ class SeleniumTask(MouseTask):
         return self.get_handle_res(None)
 
     def handle_scroll(self, findvalue, **kwargs):
-        self.driver.execute_script('window.scrollBy(0, %s)' % findvalue)
+        self.driver.execute_script(f'window.scrollBy(0, {findvalue})')
         return True
 
 
@@ -413,7 +428,7 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
 
     def handle_task_elements(self, task_eles, fallback):
         # self.save_page_to_local("eles.html")
-        self.logger.info("start  eles  task, eles count: %s..." % len(task_eles))
+        self.logger.info(f"start  eles  task, eles count: {len(task_eles)}...")
         for task_ele in task_eles:
             self.element_click(task_ele)
             if fallback:
@@ -441,7 +456,7 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
         wallet_val = val
         wallet_task_steps = self.sql_info(wallet_steps_select_sql, (wallet_id, wallet_operation))
 
-        self.logger.info("wait for a moment to switch handle: %s..." % wallet_operation)
+        self.logger.info(f"wait for a moment to switch handle: {wallet_operation}...")
         handle_res = None
         if wallet_operation in self.wallet_operation_list:
             switch_handle = wallet_task_steps[-1].get('val')
@@ -455,22 +470,24 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
                 return True
             handle_res = self.get_new_handle()
             ### replace the val for switch
-            switch_search  = wallet_task_steps[-1]['findvalue'] % ("switch/%s" % wallet_val)
+            switch_search  = wallet_task_steps[-1]['findvalue'] % (f"switch/{wallet_val}")
             wallet_task_steps[-1]['findvalue'] = switch_search
             switch_task    = wallet_task_steps[-2]['findvalue'] % wallet_val
             wallet_task_steps[-2]['findvalue'] = switch_task
 
         if not handle_res:
-            self.logger.error("failed switch to wallet: %s handle..." % wallet_val)
+            self.logger.error(f"failed switch to wallet: {wallet_val} handle...")
             return
 
         res = self.exe_steps(wallet_task_steps)
-        if not res:
-            return
 
         if wallet_operation == "switch":
             self.driver.close()
-        elif wallet_operation == "switchnet":
+
+        if not res:
+            return
+
+        if wallet_operation == "switchnet":
             self.reset_last_net(wallet_val)
 
         self.logger.info("wait for a moment let transaction finished then switch back to task tab...")
@@ -506,7 +523,7 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
             case "iframe":
                 self.driver.switch_to.frame(task_ele)
             case _:
-                self.logger.error("running step:%s failed with unsupported operation: %s" % (self.profile_id, operation))
+                self.logger.error(f"running step:{self.profile_id} failed with unsupported operation: {operation}")
                 return
         return True
 
@@ -519,16 +536,12 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
         subtask   = step.get('subtask')
         fallback  = step.get('fallback')
 
-        self.logger.info("start  step: %s" % findvalue)
+        self.logger.info(f"start  step: {findvalue}")
 
         if operation in ["url", "wallet", "mouse", "presence", "eles", "sleep", "close", "scroll", "tasks"]:
             res = self.handle_function(parameter=operation, findby=findby, findvalue=findvalue, val=val, retry=retry, operation=operation, subtask=subtask, fallback=fallback)
-            ### handle fallback
-            if not res and fallback:
-                res = self.handle_tasks(fallback, "fallback")
-                if res:
-                    step.update({"fallback": None})
-                    return self.exe_step(step)
+            if val == "skip":
+                return True
             return res
 
         task_ele = self.wait_for_element(findby, findvalue, val, retry)
@@ -541,9 +554,12 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
         except Exception as e:
             self.logger.error(e)
             return
-
+        if fallback == "fall_close":
+            res = self.handle_tasks(fallback, "fallback")
+            if not res:
+                return
         self.wait_input()
-        self.logger.debug("finish step: %s" % findvalue)
+        self.logger.debug(f"finish step: {findvalue}")
         return res
 
     def exe_steps(self, steps):
@@ -551,7 +567,19 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
         for step in steps:
             res = self.exe_step(step)
             if not res:
-                self.logger.error("execute step: %s failed..." % step)
+                ### handle fallback
+                fallback = step.get('fallback')
+                operation = step.get('operation')
+                if operation != "eles" and fallback:
+                    if str(step.get('name')) != "metamask":
+                        self.driver.switch_to.window(self.task_handle)
+                    res = self.handle_tasks(fallback, "fallback")
+                    if not res:
+                        self.logger.error(f"fallback task: {fallback} failed...")
+                        return
+                    continue
+
+                self.logger.error(f"execute step: {step} failed...")
                 return
         self.logger.info("all steps finished...")
         return True
@@ -559,10 +587,10 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
     def handle_sub_oth_tasks(self, other_sub_exe_task, sub_task):
         ### get times list
         times_list = list({oset["times"] for oset in other_sub_exe_task})
-        self.logger.info("get times list for sub task: %s, times list: %s" % (sub_task, times_list))
+        self.logger.info(f"get times list for sub task: {sub_task}, times list: {times_list}")
 
         for times in times_list:
-            self.logger.info("get specific steps for specific sub task: %s, times: %s" % (sub_task, times))
+            self.logger.info(f"get specific steps for specific sub task: {sub_task}, times: {times}")
             exe_times_list = [oset for oset in other_sub_exe_task if oset["times"] == times]
             for _ in range(times):
                 res = self.exe_steps(exe_times_list)
@@ -571,10 +599,10 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
         return True
 
     def handle_sub_tasks(self, task_name, task_list):
-        self.logger.info("execute task: %s, task: %s" % (task_name, task_list))
+        self.logger.info(f"execute task: {task_name}, task: {task_list}")
         res = self.exe_steps(task_list)
         if not res:
-            self.logger.error("failed execute task: %s, task: %s" % (task_name, task_list))
+            self.logger.error(f"failed execute task: {task_name}, task: {task_list}")
         return res
 
     def check_task(self, task_name, sub_task=None):
@@ -594,21 +622,33 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
             self.update_records(records_insert, params)
             return True
 
-        if res.get('failed'):
-            self.logger.error(f"profile: {self.profile_id}, task: {task_name}, subtask: {sub_task} failed last time")
-            return
+        status = res.get('status')
+        update_time = res.get('update_time') or datetime.strptime("2020-01-01", "%Y-%m-%d")
+        update_date = update_time.date()
 
-        today = date.today()
-        update_time = res.get('update_time')
+        match status:
+            case -1:
+                self.logger.info(f"profile: {self.profile_id}, task: {task_name}, subtask: {sub_task}")
+            case 0:
+                self.logger.error(f"profile: {self.profile_id}, task: {task_name}, subtask: {sub_task} failed last time")
+                return
+            case 1:
+                if self.current_date == update_date:
+                    self.logger.info(f"profile: {self.profile_id}, task: {task_name}, subtask: {sub_task} already running today")
+                    return
+            case 2:
+                if self.current_time < update_time + timedelta(days=1):
+                    self.logger.info(f"profile: {self.profile_id}, task: {task_name}, subtask: {sub_task} not in start time")
+                    return
+            case _:
+                self.logger.error(f"profile: {self.profile_id}, task: {task_name}, subtask: {sub_task} unsupported status type")
+                return
 
-        if update_time and (update_time.date() == today):
-            self.logger.info(f"profile: {self.profile_id}, task: {task_name}, subtask: {sub_task} already running today")
-            return
         return True
 
     def exe_sub_tasks(self, task_name):
         task_sub_steps = self.sql_info(task_sub_select_sql, (self.profile_id, task_name))
-        self.logger.debug("exe_sub_tasks: %s" % task_sub_steps)
+        self.logger.debug(f"exe_sub_tasks: {task_sub_steps}")
 
         pre_sub_task = []
         oth_sub_task = []
@@ -628,44 +668,43 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
 
         ### execute oth sub task, shuffle the sub task, random select one of it
         other_list = list({ost["subtask"] for ost in oth_sub_task})
-        self.logger.info("task: %s other taks list: %s" % (task_name, other_list))
+        self.logger.info(f"task: {task_name} other taks list: {other_list}")
         sub_failed_count = 0
         for ost in self.get_random_items(other_list):
             res = self.check_task(task_name, ost)
             if not res:
-                self.logger.error(f"profile: {self.profile_id}, task: {task_name}, subtask: {ost} failed, try next one")
+                self.logger.info(f"profile: {self.profile_id}, task: {task_name}, subtask: {ost} failed, try next one")
                 continue
-
             self.driver.switch_to.window(self.task_handle)
-            self.logger.info("start  execute task: %s, other task: %s" % (task_name, ost))
+            self.logger.info(f"start  execute task: {task_name}, other task: {ost}")
             other_sub_exe_task = []
 
             for tss in task_sub_steps:
                 if tss.get('subtask') == ost:
                     other_sub_exe_task.append(tss)
 
-            self.logger.debug("other  task list: %s" % other_sub_exe_task)
+            self.logger.debug(f"other  task list: {other_sub_exe_task}")
             res = self.handle_sub_oth_tasks(other_sub_exe_task, ost)
 
             update_params = (self.profile_id, task_name, ost)
             if not res:
                 sub_failed_count += 1
-                self.logger.error("failed execute task: %s, other task: %s" % (task_name, ost))
                 self.update_records(records_failed_by_subtask, update_params)
+                self.logger.error(f"failed execute task: {task_name}, other task: {ost}")
                 continue
 
-            self.logger.info("finish execute task: %s, other task: %s" % (task_name, ost))
             self.update_records(records_finish_by_subtask, update_params)
+            self.logger.info(f"finish execute task: {task_name}, other task: {ost}")
 
         ### execute end sub task
         if end_sub_task:
             self.handle_sub_tasks(task_name, end_sub_task)
 
-        return sub_failed_count != len(other_list)
+        return sub_failed_count < len(other_list)
 
-    def run_tasks_by_profile(self, tasks):
+    def run_tasks_by_profile(self):
         ### shuffle the task
-        for task in self.get_random_items(tasks):
+        for task in self.get_random_items(self.tasks):
             task_name = task.get('name')
             # if task_name not in ["xtremeverse"]:
             #     continue
@@ -673,31 +712,33 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
             # check if task is failed or already running
             res = self.check_task(task_name)
             if not res:
-                self.logger.error(f"profile: {self.profile_id}, task: {task_name} failed, try next one")
+                self.logger.info(f"profile: {self.profile_id}, task: {task_name} check failed, try next task")
                 continue
 
-            self.logger.info("start  profile: %s, task: %s" % (self.profile_id, task_name))
+            self.logger.info(f"start  profile: {self.profile_id}, task: {task_name}")
             res = self.exe_sub_tasks(task_name)
+            update_params = (self.profile_id, task_name)
             if not res:
-                self.logger.info("failed task: %s, try next one..." % task_name)
-                ### update DB let other profile skip this failed task
-                self.update_records(records_failed_by_task, (self.profile_id, task_name))
+                ### update DB
+                self.update_records(records_failed_by_task, update_params)
+                self.logger.error(f"profile: {self.profile_id}, task: {task_name} execute failed, try next task")
                 continue
 
             ### update DB task finished.
-            self.logger.info("finish profile: %s, task: %s" % (self.profile_id, task_name))
+            self.update_records(records_finish_by_task, update_params)
+            self.logger.info(f"finish profile: {self.profile_id}, task: {task_name}")
 
-        self.logger.info("all tasks finished for profile: %s" % self.profile_id)
+        self.logger.info(f"all tasks finished for profile: {self.profile_id}")
         self.driver.switch_to.window(self.task_handle)
         self.driver.close()
 
-    def exe_profile(self, extensions, tasks):
+    def exe_profile(self):
         self.wait = self.get_wait(self.driver, self.wait_time)
         self.action = self.get_action(self.driver)
 
         self.orig_handle = self.driver.current_window_handle
-        self.logger.debug("original window is: %s" % self.orig_handle)
-        self.know_handle.append(self.orig_handle)
+        self.logger.debug(f"original window is: {self.orig_handle}")
+        self.known_handles.append(self.orig_handle)
 
         profile_item = self.get_profile(self.profile_id)
         self.wallet_pass = profile_item.get('pass')
@@ -705,7 +746,7 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
         # self.last_net = "zircuit"
         # self.last_net = "morph holesky"
         ### login to wallets first...
-        log_wallet = self.login_wallets(extensions)
+        log_wallet = self.login_wallets()
         if not log_wallet:
             self.logger.error("login wallet failed, try next profile...")
             return
@@ -722,13 +763,13 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
         if not self.task_handle:
             self.logger.error("get  tasks handle failed, try next profile")
             return
-        self.know_handle.append(self.task_handle)
-        self.logger.info("new  tasks handle is: %s" % self.task_handle)
+        self.known_handles.append(self.task_handle)
+        self.logger.info(f"new  tasks handle is: {self.task_handle}")
 
-        self.run_tasks_by_profile(tasks)
+        self.run_tasks_by_profile()
 
         ### all task finished for current profile, close the browser
-        self.logger.info("finish profile: %s" % self.profile_id)
+        self.logger.info(f"finish profile: {self.profile_id}")
         self.last_net = ""
         self.task_handle = ""
         # self.position.append(position)
@@ -736,11 +777,7 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
         return True
 
     def start_web(self):
-        extensions = self.get_extensions()
-        ### get tasks
-        tasks = self.get_tasks()
-        self.logger.debug("successfully get tasks: %s" % tasks)
-        self.run_profile(extensions, tasks)
+        self.run_profiles()
 
     def pre_check(self):
         return self.check_browser()
@@ -750,14 +787,11 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
             raise Exception(f"web3 pre check failed")
         self.start_web()
 
+
 def main():
     st = WebTask()
     st.run_web_task()
-    # st.profile_id = "156665546fe14caf894d1f01565c862a"
-    # print(st.get_profile())
-    # print(st.get_extensions())
-    # res = st.sql_info(input_select_sql,('8daa7a1341634a1db8bb2e3fd3aa8289', 6))
-    # print(res)
+
 
 if __name__ == '__main__':
     main()

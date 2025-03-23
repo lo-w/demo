@@ -25,6 +25,7 @@ import threading
 import webbrowser
 import psycopg2
 import psycopg2.extras
+from datetime import datetime, timezone
 
 from os import path
 from logging import handlers
@@ -33,9 +34,9 @@ from abc import abstractmethod
 
 profiles_select_sql       = "SELECT * FROM profiles;"
 profile_select_sql        = "SELECT * FROM profiles where profile=%s;"
+records_select_by_profile = "SELECT * FROM records  where profile=%s order by update_time desc limit 1;"
 extensions_select_sql     = "SELECT * FROM extensions where login is True;"
 tasks_select_sql          = "SELECT distinct name FROM tasks where name not in ('metamask','unisat','keplr','fallback');"
-
 
 
 class InitConf():
@@ -45,7 +46,7 @@ class InitConf():
         # self.new_title      = "Version"
         self.open_page        = "chrome://version/"
         self.new_url          = "https://www.bing.com"
-        self.new_title        = "Microsoft Bing"
+        self.new_title        = "Bing"
 
         self.log_level        = logging.INFO
         self.log_ext          = ".log"
@@ -66,6 +67,18 @@ class InitConf():
         self.split_str        = ";;"
         self.wallets_pre      = ["meta_", "okx_"]
         self.wallets_not      = ["wallets", "switch"]
+        
+        self.known_titles     = ["SwitchyOmega", "MetaMask Offscreen", "https://testnet.zulunetwork.io"]
+        self.known_handles    = []
+        self.extensions       = []
+        self.tasks            = []
+        self.orig_handle      = ""
+        self.task_handle      = ""
+        self.wall_handle      = ""
+        self.wallet_pass      = ""
+        self.last_net         = ""
+        self.profile_id       = ""
+        self.wallet_operation_list = ["confirm", "cancel", "switchnet", "signpay", "sign"]
         self.RLIST            = [",", "-"]
         self.JSON_ID          = '{"id": "%s"}'
 
@@ -108,11 +121,11 @@ class InitConf():
     def handle_function(self, parameter, *args, **kwargs):
         call_func = 'handle_' + parameter
         if hasattr(self, call_func):
-            self.logger.debug("perfrom handle function: %s" % call_func)
+            self.logger.debug(f"perfrom handle function: {call_func}")
             res = getattr(self, call_func)(*args, **kwargs)
             return res
         else:
-            self.logger.error("handle function not exist: %s" % call_func)
+            self.logger.error(f"handle function not exist: {call_func}")
 
     def get_otp(self, secret):
         # secret = 'MDANW36JHNV3EOBM'
@@ -226,7 +239,7 @@ class InitConf():
         return cpath + ' %s' if os.path.exists(cpath) else None
 
     def open_url(self, cpath, url):
-        self.logger.info('start  open url: %s' % url)
+        self.logger.info(f'start  open url: {url}')
         browser_running = self.if_process_is_running_by_exename(self.browser_name)
 
         if not browser_running:
@@ -239,7 +252,7 @@ class InitConf():
         self.logger.info('finish open url')
 
     @abstractmethod
-    def exe_profile(self, extensions, tasks):
+    def exe_profile(self):
         pass
 
     @abstractmethod
@@ -338,7 +351,7 @@ class MouseTask(InitConf):
             pyautogui.hotkey(v)
         elif o == 9:
             if u:
-                self.cpath = " ".join((self.cpath, "--user-data-dir=%s" % u))
+                self.cpath = " ".join((self.cpath, f"--user-data-dir={u}"))
             self.open_url(self.cpath, v)
         else:
             return
@@ -352,20 +365,20 @@ class MouseTask(InitConf):
         u = es.get('u')
         for wallet_pre in self.wallets_pre:
             if str(v).startswith(wallet_pre):
-                v = "wallets/%s" % v
+                v = f"wallets/{v}"
 
         if str(v).startswith("task_"):
-            v = "tasks/%s" % v
+            v = f"tasks/{v}"
 
         vs = self.validate_step(o, v)
         if not vs:
             self.logger.error("validate failed...")
             return
-        self.logger.debug("start  mouse step: %s" % es)
+        self.logger.debug(f"start  mouse step: {es}")
         result = self.execute_step(o, v, s, r, u)
         if not result:
             return
-        self.logger.debug("finish mouse step: %s" % es)
+        self.logger.debug(f"finish mouse step: {es}")
         return True
 
     def execute_repeat_task(self, ets):
@@ -377,14 +390,14 @@ class MouseTask(InitConf):
             result = self.execute_mouse_task(rep)
             if not result:
                 failed_count = failed_count - 1
-                self.logger.info("repeat task failed, left %s..." % failed_count)
+                self.logger.info(f"repeat task failed, left {failed_count}...")
                 if failed_count < 1:
                     self.logger.error("too many failed try...")
                     return False
                 self.execute_mouse_task(rep.get('fail'))
                 continue
             repeat_times = repeat_times - 1
-            self.logger.info("left %s times" % str(repeat_times))
+            self.logger.info(f"left {str(repeat_times)} times")
             if repeat_times < 1:
                 self.logger.info("repeat task finished...")
                 break
@@ -414,8 +427,6 @@ class MouseTask(InitConf):
             os.system(self.browser_close)
 
 
-
-
 class PostGressDB(InitConf):
     def __init__(self) -> None:
         super().__init__()
@@ -433,7 +444,7 @@ class PostGressDB(InitConf):
                 self.logger.debug("success connected to the PostgreSQL server...")
                 return conn
         except (psycopg2.DatabaseError, Exception) as e:
-            self.logger.error("failed connect to DB with error: %s" % e)
+            self.logger.error(f"failed connect to DB with error: {e}")
             return
 
     def sql_info(self, sql, param=None, query=True):
@@ -479,3 +490,29 @@ class PostGressDB(InitConf):
 
     def update_records(self, update_record, params):
         return self.sql_info(update_record, params, False)
+
+    def check_profile(self):
+        res = self.get_records(records_select_by_profile, (self.profile_id,))
+        if res:
+            update_time = res.get('update_time')
+            update_date = update_time.date()
+            if self.current_date == update_date:
+                self.logger.info(f"profile: {self.profile_id} already running today")
+                return
+        return True
+
+    def profile_pre_check(self, profile_check=True):
+        self.current_time = datetime.now(timezone.utc)
+        self.current_date = self.current_time.date()
+        res = self.check_profile()
+        if profile_check and (not res):
+            return
+        if not self.extensions:
+            self.extensions = self.get_extensions()
+
+        if not self.tasks:
+            ### get tasks
+            self.tasks = self.get_tasks()
+            self.logger.debug(f"successfully get tasks: {self.tasks}")
+        return True
+
