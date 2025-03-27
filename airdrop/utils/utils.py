@@ -6,9 +6,13 @@
 
 required lib:
 pip install pyotp
+pip install psutil
 pip install pyperclip
 pip install pyautogui
 pip install psycopg2-binary
+
+for linux:
+apt install xclip
 
 '''
 import os
@@ -83,8 +87,8 @@ class InitConf():
         self.JSON_ID          = '{"id": "%s"}'
 
         self.position         = ["0,0","%s,0" % str(int(self.getMWH()[0])/2)]
-        self.browser          = None
-        self.browser_close    = None
+        self.browser          = "chrome"
+        self.browser_close    = ""
         self.tweens           = [pyautogui.easeInOutQuart, pyautogui.easeInOutQuint, pyautogui.easeInOutSine, pyautogui.easeInOutExpo]
 
     def get_cur_dir(self, file_name):
@@ -173,12 +177,16 @@ class InitConf():
     def getMWH(self):
         if "Windows" in self.pf:
             user32 = ctypes.windll.user32
+            self.driver_path   = "C:/others/dev/py/chromedriver-win64/chromedriver.exe"
+            self.user_data_dir = "C:/others/dev/chromedata/"
             return user32.GetSystemMetrics(0), user32.GetSystemMetrics(1)
         else:
             from subprocess import check_output
             if "Linux" in self.pf:
-                # test in ubuntu
-                command = "xrandr | awk -F' ' '/\*/{print $1}'"
+                # test in debian/ubuntu
+                command = "xrandr | awk -F'[ ]+|,' '/current/{print $9 $10 $11}'"
+                self.driver_path = "/home/lo/chromedata/chromedriver-linux64/chromedriver"
+                self.user_data_dir = "/home/lo/chromedata"
             elif "MacOS" in self.pf:
                 # test for python3 in catalina
                 command = "system_profiler SPDisplaysDataType | awk -F' ' '/Resolution/{print $2 \"x\" $4}'"
@@ -196,7 +204,7 @@ class InitConf():
         parser = ConfigParser()
         parser.read(filename)
         if not parser.has_section(section):
-            raise Exception('Section {0} not found in the {1} file'.format(section, filename))
+            raise Exception(f'Section {section} not found in the {filename} file')
         # get section, default to postgresql
         config = {}
         params = parser.items(section)
@@ -214,28 +222,53 @@ class InitConf():
 
     def get_browser_path(self):
         cpath = ""
-        self.browser_name = self.browser
-        if "MacOS" in self.pf:
-            if self.browser == "chrome":
-                cpath = '/Applications/Google Chrome.app'
-            elif self.browser == "msedge":
-                cpath = '/Applications/Microsoft Edge.app'
-            self.browser_close = ""
-            return 'open -a %s' % cpath + ' %s' if os.path.exists(cpath) else None
-        elif "Windows" in self.pf:
-            if self.browser == "chrome":
-                # "C:\Program Files\Google\Chrome\Application\chrome.exe"
-                cpath = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
-            elif self.browser == "msedge":
-                cpath = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
-            self.browser_name += ".exe"
-            self.browser_close = f"taskkill /f /im {self.browser_name}"
-        elif "Linux" in self.pf:
-            if self.browser == "chrome":
-                cpath = '/usr/bin/google-chrome'
-            elif self.browser == "msedge":
-                cpath = '/usr/bin/microsoft-edge-stable'
-            self.browser_close = f"pkill {self.browser_name}"
+        match self.pf:
+            case "MacOS":
+                match self.browser:
+                    case "chrome":
+                        cpath = '/Applications/Google Chrome.app'
+                    case "msedge":
+                        cpath = '/Applications/Microsoft Edge.app'
+                self.browser_close = ""
+                return 'open -a %s' % cpath + ' %s' if os.path.exists(cpath) else None
+            case "Windows":
+                match self.browser:
+                    case "chrome":
+                        cpath = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+                    case "msedge":
+                        cpath = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
+                self.browser_close = f"taskkill /f /im {self.browser}.exe"
+            case "Linux":
+                match self.browser:
+                    case "chrome":
+                        cpath = '/usr/bin/chrome'
+                    case "msedge":
+                        cpath = '/usr/bin/microsoft-edge-stable'
+                self.browser_close = f"pkill {self.browser}"
+            case _:
+                return
+
+        # if "MacOS" in self.pf:
+        #     if self.browser == "chrome":
+        #         cpath = '/Applications/Google Chrome.app'
+        #     elif self.browser == "msedge":
+        #         cpath = '/Applications/Microsoft Edge.app'
+        #     self.browser_close = ""
+        #     return 'open -a %s' % cpath + ' %s' if os.path.exists(cpath) else None
+        # elif "Windows" in self.pf:
+        #     if self.browser == "chrome":
+        #         # "C:\Program Files\Google\Chrome\Application\chrome.exe"
+        #         cpath = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+        #     elif self.browser == "msedge":
+        #         cpath = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
+        #     self.browser_name += ".exe"
+        #     self.browser_close = f"taskkill /f /im {self.browser_name}"
+        # elif "Linux" in self.pf:
+        #     if self.browser == "chrome":
+        #         cpath = '/usr/bin/google-chrome'
+        #     elif self.browser == "msedge":
+        #         cpath = '/usr/bin/microsoft-edge-stable'
+        #     self.browser_close = f"pkill {self.browser_name}"
         return cpath + ' %s' if os.path.exists(cpath) else None
 
     def open_url(self, cpath, url):
@@ -326,7 +359,7 @@ class MouseTask(InitConf):
             except:
                 self.wait_input()
         if not s:
-            self.logger.info("cannot get image location")
+            self.logger.info(f"cannot get image location with path: {v}")
         return None
 
     def execute_step(self, o, v, s, r, u):
@@ -504,9 +537,10 @@ class PostGressDB(InitConf):
     def profile_pre_check(self, profile_check=True):
         self.current_time = datetime.now(timezone.utc)
         self.current_date = self.current_time.date()
-        res = self.check_profile()
-        if profile_check and (not res):
-            return
+        if profile_check:
+            res = self.check_profile()
+            if not res:
+                return
         if not self.extensions:
             self.extensions = self.get_extensions()
 

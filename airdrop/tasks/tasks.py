@@ -3,6 +3,10 @@
 '''
 @File    :   tasks.py
 @Author  :   renjun
+
+required lib:
+pip install requests
+pip install selenium
 '''
 
 import os
@@ -79,8 +83,6 @@ class ChromeBrowser(PostGressDB):
         chromedriver: https://googlechromelabs.github.io/chrome-for-testing/#stable
         """
         super().__init__()
-        self.driver_path = "C:/others/dev/py/chromedriver-win64/chromedriver.exe"
-        self.user_data_dir = "C:/others/dev/chromedata/"
 
     def check_browser(self):
         return True
@@ -89,9 +91,8 @@ class ChromeBrowser(PostGressDB):
         self.driver.get(self.open_page)
         return self.driver
 
-    def close_browser(self, profile):
-        if self.browser_close:
-            os.system(self.browser_close)
+    def close_browser(self):
+        self.driver.quit()
 
     def check_get_proxy(self):
         return True
@@ -119,9 +120,11 @@ class ChromeBrowser(PostGressDB):
         # self.chrome_options.add_argument('--no-sandbox')
         # self.chrome_options.add_argument('--headless')
         self.chrome_options.add_argument('--disable-gpu')
+        # self.chrome_options.add_argument('--disable-dev-shm-usage')
+        self.chrome_options.add_argument('--hide-crash-restore-bubble')
         self.chrome_options.add_argument('--ignore-certificate-errors')
         self.chrome_options.add_argument('--ignore-ssl-errors')
-        # self.chrome_options.add_argument('--disable-dev-shm-usage')
+        self.chrome_options.add_argument('--window-size=1200,1400')
         self.chrome_options.add_argument(f"--user-data-dir={os.path.join(self.user_data_dir, directory)}")
         # self.chrome_options.add_experimental_option("debuggerAddress", res['data']['http'])
         # self.driver = webdriver.Chrome(service=Service(executable_path=self.driver_path), options=self.chrome_options)
@@ -141,6 +144,7 @@ class ChromeBrowser(PostGressDB):
         profiles = self.get_profiles()
         for profile in self.get_random_items(profiles):
             self.run_profile(profile)
+            self.close_browser()
 
 
 class BitBrowser(PostGressDB):
@@ -150,11 +154,11 @@ class BitBrowser(PostGressDB):
         self.BIT_URL = "http://127.0.0.1:54345"
         self.driver_path = None
 
-    def open_browser(self, id):    # 直接指定ID打开窗口，也可以使用 createBrowser 方法返回的ID
-        return requests.post(f"{self.BIT_URL}/browser/open", data=self.JSON_ID % id, headers=self.headers).json()
+    def open_browser(self):    # 直接指定ID打开窗口，也可以使用 createBrowser 方法返回的ID
+        return requests.post(f"{self.BIT_URL}/browser/open", data=self.JSON_ID % self.profile_id, headers=self.headers).json()
 
-    def close_browser(self, id):   # 关闭窗口
-        requests.post(f"{self.BIT_URL}/browser/close", data=self.JSON_ID % id, headers=self.headers).json()
+    def close_browser(self):   # 关闭窗口
+        requests.post(f"{self.BIT_URL}/browser/close", data=self.JSON_ID % self.profile_id, headers=self.headers).json()
 
     def get_bit_profiles(self):
         return requests.post(f"{self.BIT_URL}/browser/list", data=json.dumps({"page":0,"pageSize":10}), headers=self.headers).json()
@@ -185,7 +189,7 @@ class BitBrowser(PostGressDB):
         # profile_extensions = ",".join([os.path.join(profile_path,"Extensions", extension) for extension in extensions])
         # proxy = get_proxy_by_profile(profile_id)
 
-        res = self.open_browser(self.profile_id)
+        res = self.open_browser()
         if not res['success']:
             self.logger.error(f"open profile: {self.profile_id} failed...")
             ### need to update the DB status which profile is failed
@@ -238,7 +242,10 @@ class Wallets(MouseTask, PostGressDB):
         return self.exe_steps(login_steps)
 
     def login_wallets(self):
-        wall_handle = self.get_new_handle()
+        wall_handle = self.get_handle_res("MetaMask")
+        if not wall_handle:
+            wall_handle = self.get_new_handle()
+        # wall_handle = self.get_new_handle()
         self.logger.info(f"new wallet handle is: {wall_handle}")
         if not wall_handle:
             self.logger.error("get wallet handle failed...")
@@ -773,7 +780,6 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
         self.last_net = ""
         self.task_handle = ""
         # self.position.append(position)
-        self.close_browser(self.profile_id)
         return True
 
     def start_web(self):
