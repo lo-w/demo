@@ -92,7 +92,8 @@ class ChromeBrowser(PostGressDB):
         return self.driver
 
     def close_browser(self):
-        self.driver.quit()
+        if self.driver:
+            self.driver.quit()
 
     def check_get_proxy(self):
         return True
@@ -242,10 +243,10 @@ class Wallets(MouseTask, PostGressDB):
         return self.exe_steps(login_steps)
 
     def login_wallets(self):
-        wall_handle = self.get_handle_res("MetaMask")
-        if not wall_handle:
+        if self.pf == "Linux":
+            wall_handle = self.get_handle_res("MetaMask")
+        else:
             wall_handle = self.get_new_handle()
-        # wall_handle = self.get_new_handle()
         self.logger.info(f"new wallet handle is: {wall_handle}")
         if not wall_handle:
             self.logger.error("get wallet handle failed...")

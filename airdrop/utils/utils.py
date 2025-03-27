@@ -62,7 +62,7 @@ class InitConf():
         self.MAXS             = 1.5
         self.INPUT_TIME       = 0.1
         self.wait_time        = 5
-        self.wait_handle      = 15
+        self.wait_handle      = 10
         self.WEB_PAGE_TIMEOUT = 30
 
         self.confidence       = 0.9
