@@ -26,18 +26,20 @@ import random
 import logging
 import platform
 import pyperclip
-import pyautogui
 import threading
 import webbrowser
 import subprocess
 import psycopg2
 import psycopg2.extras
+
 from datetime import datetime, timezone
 
 from os import path
 from logging import handlers
 from configparser import ConfigParser
 from abc import abstractmethod
+from subprocess import check_output
+
 
 profiles_select_sql       = "SELECT * FROM profiles;"
 profile_select_sql        = "SELECT * FROM profiles where profile=%s;"
@@ -88,10 +90,11 @@ class InitConf():
         self.RLIST            = [",", "-"]
         self.JSON_ID          = '{"id": "%s"}'
         self.background       = True
+        self.init_pyautogui()
         self.position         = ["0,0","%s,0" % str(int(self.getMWH()[0])/2)]
         self.browser          = "chrome"
         self.browser_close    = ""
-        self.tweens           = [pyautogui.easeInOutQuart, pyautogui.easeInOutQuint, pyautogui.easeInOutSine, pyautogui.easeInOutExpo]
+        self.tweens           = []
 
     def get_cur_dir(self, file_name):
         return os.path.dirname(os.path.abspath(file_name))
@@ -184,34 +187,38 @@ class InitConf():
         self.exit_code = process.returncode
         return stdout.rstrip("\n"), stderr
 
-    def init_background(self):
-        import Xlib.display # type: ignore
-        from pyvirtualdisplay.display import Display
-        # export DISPLAY=:99 && Xvfb :99 -ac &
-        self.exe_shell("export DISPLAY=:99 && Xvfb :99 -ac &")
-        disp = Display(visible=True, size=(2560, 1440), backend="xvfb", use_xauth=True, extra_args=[":99"])
-        disp.start()
-        pyautogui._pyautogui_x11._display = Xlib.display.Display(os.environ['DISPLAY'])
+    def init_pyautogui(self):
+        if self.background:
+            import Xlib.display # type: ignore
+            from pyvirtualdisplay.display import Display
+            # export DISPLAY=:99 && Xvfb :99 -ac &
+            os.environ["DISPLAY"] = ":99"
+            self.exe_shell("Xvfb :99 -ac &")
+            disp = Display(visible=True, size=(2560, 1440), backend="xvfb", use_xauth=True, extra_args=[":99"])
+            disp.start()
+
+        import pyautogui
+        self.tweens = [pyautogui.easeInOutQuart, pyautogui.easeInOutQuint, pyautogui.easeInOutSine, pyautogui.easeInOutExpo]
+        self._pyautogui = pyautogui
+        # pyautogui._pyautogui_x11._display = Xlib.display.Display(os.environ['DISPLAY'])
 
     def getMWH(self):
-        if "Windows" in self.pf:
-            user32 = ctypes.windll.user32
-            self.driver_path   = "C:/others/dev/py/chromedriver-win64/chromedriver.exe"
-            self.user_data_dir = "C:/others/dev/chromedata/"
-            return user32.GetSystemMetrics(0), user32.GetSystemMetrics(1)
-        else:
-            from subprocess import check_output
-            if "Linux" in self.pf:
-                # test in debian/ubuntu
+        if self.background:
+            return 2560, 1440
+
+        match self.pf:
+            case "Windows":
+                user32 = ctypes.windll.user32
+                self.driver_path   = "C:/others/dev/py/chromedriver-win64/chromedriver.exe"
+                self.user_data_dir = "C:/others/dev/chromedata/"
+                return user32.GetSystemMetrics(0), user32.GetSystemMetrics(1)
+            case "Linux":
                 command = "xrandr | awk -F'[ ]+|,' '/current/{print $9 $10 $11}'"
                 self.driver_path = "/home/lo/chromedata/chromedriver-linux64/chromedriver"
                 self.user_data_dir = "/home/lo/chromedata"
-                if self.background:
-                    self.init_background()
-            elif "MacOS" in self.pf:
-                # test for python3 in catalina
+            case "MacOS":
                 command = "system_profiler SPDisplaysDataType | awk -F' ' '/Resolution/{print $2 \"x\" $4}'"
-            else:
+            case _:
                 return 1920, 1080
         return check_output(command, shell=True, encoding="utf-8").strip().split("x")
 
@@ -330,9 +337,9 @@ class MouseTask(InitConf):
         tween = self.choose_item_from_list(self.tweens)
 
         if o == 6:
-            pyautogui.moveTo(x, y, duration=dura,tween=tween)  # Move the mouse to the specified location.
+            self._pyautogui.moveTo(x, y, duration=dura,tween=tween)  # Move the mouse to the specified location.
         else:
-            pyautogui.click(x, y, clicks=ct, interval=dura, duration=dura, button=lr, tween=tween)  # Perform a mouse click.
+            self._pyautogui.click(x, y, clicks=ct, interval=dura, duration=dura, button=lr, tween=tween)  # Perform a mouse click.
         self.wait_input()
 
     def validate_step(self, o, v):
@@ -353,7 +360,7 @@ class MouseTask(InitConf):
         retry_times = r or self.r
         for _ in range(retry_times):
             try:
-                location = pyautogui.locateCenterOnScreen(self.get_cur_path(v), confidence=self.confidence)
+                location = self._pyautogui.locateCenterOnScreen(self.get_cur_path(v), confidence=self.confidence)
                 return location
             except:
                 self.wait_input()
@@ -373,14 +380,14 @@ class MouseTask(InitConf):
                 return True
             return True if s else False
         elif o == 4:
-            pyautogui.scroll(v)
+            self._pyautogui.scroll(v)
         elif o == 5:
             pyperclip.copy(v)
             self.wait_input()
-            pyautogui.hotkey('ctrl','v')
+            self._pyautogui.hotkey('ctrl','v')
             self.wait_input()
         elif o == 7:
-            pyautogui.hotkey(v)
+            self._pyautogui.hotkey(v)
         elif o == 9:
             if u:
                 self.cpath = " ".join((self.cpath, f"--user-data-dir={u}"))
