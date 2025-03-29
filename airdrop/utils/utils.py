@@ -29,6 +29,7 @@ import pyperclip
 import pyautogui
 import threading
 import webbrowser
+import subprocess
 import psycopg2
 import psycopg2.extras
 from datetime import datetime, timezone
@@ -177,6 +178,21 @@ class InitConf():
         ### y: height
         return {"x": self.get_round(-10, 10), "y": self.get_round(-6, 6)}
 
+    def exe_shell(self, command):
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True, text=True)
+        stdout, stderr = process.communicate()
+        self.exit_code = process.returncode
+        return stdout.rstrip("\n"), stderr
+
+    def init_background(self):
+        import Xlib.display # type: ignore
+        from pyvirtualdisplay.display import Display
+        # export DISPLAY=:99 && Xvfb :99 -ac &
+        self.exe_shell("export DISPLAY=:99 && Xvfb :99 -ac &")
+        disp = Display(visible=True, size=(2560, 1440), backend="xvfb", use_xauth=True, extra_args=[":99"])
+        disp.start()
+        pyautogui._pyautogui_x11._display = Xlib.display.Display(os.environ['DISPLAY'])
+
     def getMWH(self):
         if "Windows" in self.pf:
             user32 = ctypes.windll.user32
@@ -191,12 +207,7 @@ class InitConf():
                 self.driver_path = "/home/lo/chromedata/chromedriver-linux64/chromedriver"
                 self.user_data_dir = "/home/lo/chromedata"
                 if self.background:
-                    import Xlib.display # type: ignore
-                    from pyvirtualdisplay.display import Display
-                    disp = Display(visible=True, size=(2560, 1440), backend="xvfb", use_xauth=True, extra_args=[":99"])
-                    disp.start()
-                    pyautogui._pyautogui_x11._display = Xlib.display.Display(os.environ['DISPLAY'])
-
+                    self.init_background()
             elif "MacOS" in self.pf:
                 # test for python3 in catalina
                 command = "system_profiler SPDisplaysDataType | awk -F' ' '/Resolution/{print $2 \"x\" $4}'"
