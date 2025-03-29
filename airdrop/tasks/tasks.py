@@ -76,7 +76,6 @@ records_insert_by_task    = "INSERT INTO records(profile,task) values(%s, %s);"
 records_insert_by_subtask = "INSERT INTO records(profile,task,subtask) values(%s, %s, %s);"
 
 
-
 class ChromeBrowser(PostGressDB):
     def __init__(self) -> None:
         """
@@ -423,6 +422,7 @@ class SeleniumTask(MouseTask):
 
 class WebTask(Wallets, SeleniumTask, ChromeBrowser):
     def __init__(self) -> None:
+        self._log_name = __file__
         super().__init__()
         self.cur_dir = self.get_cur_dir(__file__)
 

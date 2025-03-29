@@ -2,10 +2,6 @@
 '''
 required lib:
 pip install pyyaml
-pip install pyperclip
-pip install pyautogui
-pip install pillow
-pip install opencv-python -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 '''
 import os
@@ -16,8 +12,8 @@ from airdrop.utils.utils import MouseTask
 
 class AutoTask(MouseTask):
     def __init__(self) -> None:
+        self._log_name = __file__
         super().__init__()
-        # self.logger = self.get_logger(self.get_log_name(__file__))
         self.cur_dir = self.get_cur_dir(__file__)
         self.conf = self.load_config(self.get_cur_path("auto.ini"), "auto")
 

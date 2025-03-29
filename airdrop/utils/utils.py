@@ -9,6 +9,8 @@ pip install pyotp
 pip install psutil
 pip install pyperclip
 pip install pyautogui
+pip install pillow
+pip install opencv-python -i https://pypi.tuna.tsinghua.edu.cn/simple
 pip install psycopg2-binary
 
 for linux:
@@ -46,7 +48,6 @@ tasks_select_sql          = "SELECT distinct name FROM tasks where name not in (
 class InitConf():
     def __init__(self) -> None:
         self.pf               = platform.system()
-        # self.open_page      = "chrome://version/"
         # self.new_title      = "Version"
         self.open_page        = "chrome://version/"
         self.new_url          = "https://www.bing.com"
@@ -56,7 +57,7 @@ class InitConf():
         self.log_ext          = ".log"
         self.cur_dir          = self.get_cur_dir(__file__)
         self.log_dir          = self.get_log_path("./logs/")
-        self.logger           = self.get_logger(self.get_log_name(__file__))
+        self.logger           = self.get_logger(self.get_log_name())
 
         self.MINS             = 0.8
         self.MAXS             = 1.5
@@ -65,13 +66,13 @@ class InitConf():
         self.wait_handle      = 10
         self.WEB_PAGE_TIMEOUT = 30
 
-        self.confidence       = 0.9
+        self.confidence       = 0.9 if self.pf == "Windows" else 0.8
         self.r                = 4
 
         self.split_str        = ";;"
         self.wallets_pre      = ["meta_", "okx_"]
         self.wallets_not      = ["wallets", "switch"]
-        
+
         self.known_titles     = ["SwitchyOmega", "MetaMask Offscreen", "https://testnet.zulunetwork.io"]
         self.known_handles    = []
         self.extensions       = []
@@ -85,7 +86,7 @@ class InitConf():
         self.wallet_operation_list = ["confirm", "cancel", "switchnet", "signpay", "sign"]
         self.RLIST            = [",", "-"]
         self.JSON_ID          = '{"id": "%s"}'
-
+        self.background       = True
         self.position         = ["0,0","%s,0" % str(int(self.getMWH()[0])/2)]
         self.browser          = "chrome"
         self.browser_close    = ""
@@ -97,8 +98,10 @@ class InitConf():
     def get_cur_path(self, file_name):
         return os.path.join(self.cur_dir, file_name)
 
-    def get_log_name(self, file_name):
-        return os.path.splitext(os.path.basename(file_name))[0]
+    def get_log_name(self):
+        if not self._log_name:
+            self._log_name = __file__
+        return os.path.splitext(os.path.basename(self._log_name))[0]
 
     def get_log_path(self, file_name):
         return os.path.join(path.dirname(self.cur_dir), file_name)
@@ -187,6 +190,13 @@ class InitConf():
                 command = "xrandr | awk -F'[ ]+|,' '/current/{print $9 $10 $11}'"
                 self.driver_path = "/home/lo/chromedata/chromedriver-linux64/chromedriver"
                 self.user_data_dir = "/home/lo/chromedata"
+                if self.background:
+                    import Xlib.display # type: ignore
+                    from pyvirtualdisplay.display import Display
+                    disp = Display(visible=True, size=(2560, 1440), backend="xvfb", use_xauth=True, extra_args=[":99"])
+                    disp.start()
+                    pyautogui._pyautogui_x11._display = Xlib.display.Display(os.environ['DISPLAY'])
+
             elif "MacOS" in self.pf:
                 # test for python3 in catalina
                 command = "system_profiler SPDisplaysDataType | awk -F' ' '/Resolution/{print $2 \"x\" $4}'"
@@ -247,28 +257,6 @@ class InitConf():
                 self.browser_close = f"pkill {self.browser}"
             case _:
                 return
-
-        # if "MacOS" in self.pf:
-        #     if self.browser == "chrome":
-        #         cpath = '/Applications/Google Chrome.app'
-        #     elif self.browser == "msedge":
-        #         cpath = '/Applications/Microsoft Edge.app'
-        #     self.browser_close = ""
-        #     return 'open -a %s' % cpath + ' %s' if os.path.exists(cpath) else None
-        # elif "Windows" in self.pf:
-        #     if self.browser == "chrome":
-        #         # "C:\Program Files\Google\Chrome\Application\chrome.exe"
-        #         cpath = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
-        #     elif self.browser == "msedge":
-        #         cpath = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
-        #     self.browser_name += ".exe"
-        #     self.browser_close = f"taskkill /f /im {self.browser_name}"
-        # elif "Linux" in self.pf:
-        #     if self.browser == "chrome":
-        #         cpath = '/usr/bin/google-chrome'
-        #     elif self.browser == "msedge":
-        #         cpath = '/usr/bin/microsoft-edge-stable'
-        #     self.browser_close = f"pkill {self.browser_name}"
         return cpath + ' %s' if os.path.exists(cpath) else None
 
     def open_url(self, cpath, url):
