@@ -94,7 +94,6 @@ class InitConf():
         self.position         = ["0,0","%s,0" % str(int(self.getMWH()[0])/2)]
         self.browser          = "chrome"
         self.browser_close    = ""
-        self.tweens           = []
 
     def get_cur_dir(self, file_name):
         return os.path.dirname(os.path.abspath(file_name))
@@ -189,18 +188,24 @@ class InitConf():
 
     def init_pyautogui(self):
         if self.background:
-            import Xlib.display # type: ignore
             from pyvirtualdisplay.display import Display
-            # export DISPLAY=:99 && Xvfb :99 -ac &
             os.environ["DISPLAY"] = ":99"
-            self.exe_shell("Xvfb :99 -ac &")
+            res, _ = self.exe_shell("pidof Xvfb")
+            if res:
+                self.exe_shell(f"kill {res}")
             disp = Display(visible=True, size=(2560, 1440), backend="xvfb", use_xauth=True, extra_args=[":99"])
             disp.start()
 
+        match self.pf:
+            case "Windows":
+                self.driver_path   = "C:/others/dev/py/chromedriver-win64/chromedriver.exe"
+                self.user_data_dir = "C:/others/dev/chromedata/"
+            case _:
+                self.driver_path   = "/home/lo/chromedata/chromedriver-linux64/chromedriver"
+                self.user_data_dir = "/home/lo/chromedata"
+
         import pyautogui
-        self.tweens = [pyautogui.easeInOutQuart, pyautogui.easeInOutQuint, pyautogui.easeInOutSine, pyautogui.easeInOutExpo]
         self._pyautogui = pyautogui
-        # pyautogui._pyautogui_x11._display = Xlib.display.Display(os.environ['DISPLAY'])
 
     def getMWH(self):
         if self.background:
@@ -209,13 +214,9 @@ class InitConf():
         match self.pf:
             case "Windows":
                 user32 = ctypes.windll.user32
-                self.driver_path   = "C:/others/dev/py/chromedriver-win64/chromedriver.exe"
-                self.user_data_dir = "C:/others/dev/chromedata/"
                 return user32.GetSystemMetrics(0), user32.GetSystemMetrics(1)
             case "Linux":
                 command = "xrandr | awk -F'[ ]+|,' '/current/{print $9 $10 $11}'"
-                self.driver_path = "/home/lo/chromedata/chromedriver-linux64/chromedriver"
-                self.user_data_dir = "/home/lo/chromedata"
             case "MacOS":
                 command = "system_profiler SPDisplaysDataType | awk -F' ' '/Resolution/{print $2 \"x\" $4}'"
             case _:
@@ -301,6 +302,7 @@ class InitConf():
 class MouseTask(InitConf):
     def __init__(self) -> None:
         super().__init__()
+        self.tweens = [self._pyautogui.easeInOutQuart, self._pyautogui.easeInOutQuint, self._pyautogui.easeInOutSine, self._pyautogui.easeInOutExpo]
 
     def mouse(self, lo, o):
         """
