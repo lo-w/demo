@@ -30,6 +30,7 @@ from selenium.common.exceptions import StaleElementReferenceException
 from airdrop.utils.utils import MouseTask, PostGressDB
 
 
+
 profiles_select_sql     =   'SELECT * FROM profiles;'
 task_sub_select_sql     =   '''
                             SELECT 
@@ -63,17 +64,13 @@ tasks_select_sql        =   '''
                                 i.fallback  fallback
                             FROM tasks t left join inputs i on t.id=i.task where name=%s and subtask=%s order by t.id;
                             '''
-wallet_steps_select_sql =   'SELECT * FROM tasks t left join inputs i on t.id=i.task left join extensions e on t."name"=e."name" where e.id=%s and t.subtask=%s order by t.id;'
+wallet_steps_select_sql   = 'SELECT * FROM tasks t left join inputs i on t.id=i.task left join extensions e on t."name"=e."name" where e.id=%s and t.subtask=%s order by t.id;'
 
-records_select_by_task    = "SELECT * FROM records where profile=%s and task=%s and subtask is null;"
-records_select_by_subtask = "SELECT * FROM records where profile=%s and task=%s and subtask=%s;"
+records_finish_by_task    = "UPDATE records set status=true  where profile=%s and task=%s and subtask is null;"
+records_finish_by_subtask = "UPDATE records set status=true  where profile=%s and task=%s and subtask=%s;"
+records_failed_by_task    = "UPDATE records set status=false where profile=%s and task=%s and subtask is null;"
+records_failed_by_subtask = "UPDATE records set status=false where profile=%s and task=%s and subtask=%s;"
 
-records_finish_by_task    = "UPDATE records set status=1 where profile=%s and task=%s;"
-records_finish_by_subtask = "UPDATE records set status=1 where profile=%s and task=%s and subtask=%s;"
-records_failed_by_task    = "UPDATE records set status=0 where profile=%s and task=%s;"
-records_failed_by_subtask = "UPDATE records set status=0 where profile=%s and task=%s and subtask=%s;"
-records_insert_by_task    = "INSERT INTO records(profile,task) values(%s, %s);"
-records_insert_by_subtask = "INSERT INTO records(profile,task,subtask) values(%s, %s, %s);"
 
 
 class ChromeBrowser(PostGressDB):
@@ -106,14 +103,17 @@ class ChromeBrowser(PostGressDB):
     def get_proxy_by_profile(self, profile_id):
         return "socks://192.168.1.13:10808"
 
-    def run_profile(self, profile, profile_check=True):
+    def run_profile(self, profile, normal_check=False, schedule_task=False):
         self.profile_id = profile.get('profile')
-        res = self.profile_pre_check(profile_check)
+        self.schedule_task = profile.get('schedule_task')
+        # self.schedule_task = True
+        res = self.profile_records_check(profile, normal_check)
         if not res:
             return
+        self.get_tasks_extensions(profile, schedule_task)
         directory = profile.get('directory')
         # if self.profile_id != '0e0ced5774fe508072b34df1f972cae3':
-        #     return
+        #    return
         self.logger.info(f"start  profile: {self.profile_id}")
         self.chrome_options = Options()
         self.chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
@@ -177,9 +177,9 @@ class BitBrowser(PostGressDB):
         BIT_URL = self.get_bit_url()
         return BIT_URL or False
 
-    def run_profile(self, profile):
+    def run_profile(self, profile, normal_check=False):
         self.profile_id = profile.get('id')
-        res = self.profile_pre_check()
+        res = self.profile_records_check(profile, normal_check)
         if not res:
             return
         # if self.profile_id != '580cd51c8ff835db4ccba5514a461d14':
@@ -242,10 +242,10 @@ class Wallets(MouseTask, PostGressDB):
         return self.exe_steps(login_steps)
 
     def login_wallets(self):
-        if self.pf == "Linux":
-            wall_handle = self.get_handle_res("MetaMask")
-        else:
-            wall_handle = self.get_new_handle()
+        # if self.pf == "Linux":
+        #     wall_handle = self.get_handle_res("MetaMask")
+        # else:
+        wall_handle = self.get_new_handle()
         self.logger.info(f"new wallet handle is: {wall_handle}")
         if not wall_handle:
             self.logger.error("get wallet handle failed...")
@@ -392,6 +392,8 @@ class SeleniumTask(MouseTask):
         for _ in range(self.r):
             try:
                 self.driver.get(findvalue)
+                # if not self.wait_for_element("xpath", "//head"):
+                #     continue
                 break
             except Exception as e:
                 self.logger.error(f"failed to open url: {findvalue}...")
@@ -467,9 +469,11 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
         self.logger.info(f"wait for a moment to switch handle: {wallet_operation}...")
         handle_res = None
         if wallet_operation in self.wallet_operation_list:
+            self.logger.debug(f"wallet_task_steps: {wallet_task_steps}...")
             switch_handle = wallet_task_steps[-1].get('val')
             self.wait_wallet()
             handle_res = self.get_handle_res(switch_handle)
+            wallet_val = switch_handle
 
         elif wallet_operation == "switch":
             res = self.reset_last_net(wallet_val)
@@ -480,6 +484,7 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
             ### replace the val for switch
             switch_search  = wallet_task_steps[-1]['findvalue'] % (f"switch/{wallet_val}")
             wallet_task_steps[-1]['findvalue'] = switch_search
+            ### input the switch chain value
             switch_task    = wallet_task_steps[-2]['findvalue'] % wallet_val
             wallet_task_steps[-2]['findvalue'] = switch_task
 
@@ -613,47 +618,6 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
             self.logger.error(f"failed execute task: {task_name}, task: {task_list}")
         return res
 
-    def check_task(self, task_name, sub_task=None):
-        if sub_task:
-            records_select = records_select_by_subtask
-            records_insert = records_insert_by_subtask
-            params = (self.profile_id, task_name, sub_task)
-        else:
-            records_select = records_select_by_task
-            records_insert = records_insert_by_task
-            params = (self.profile_id, task_name)
-
-        res = self.get_records(records_select, params)
-
-        if not res:
-            self.logger.info(f"profile: {self.profile_id}, task: {task_name}, subtask: {sub_task} not exists")
-            self.update_records(records_insert, params)
-            return True
-
-        status = res.get('status')
-        update_time = res.get('update_time') or datetime.strptime("2020-01-01", "%Y-%m-%d")
-        update_date = update_time.date()
-
-        match status:
-            case -1:
-                self.logger.info(f"profile: {self.profile_id}, task: {task_name}, subtask: {sub_task}")
-            case 0:
-                self.logger.error(f"profile: {self.profile_id}, task: {task_name}, subtask: {sub_task} failed last time")
-                return
-            case 1:
-                if self.current_date == update_date:
-                    self.logger.info(f"profile: {self.profile_id}, task: {task_name}, subtask: {sub_task} already running today")
-                    return
-            case 2:
-                if self.current_time < update_time + timedelta(days=1):
-                    self.logger.info(f"profile: {self.profile_id}, task: {task_name}, subtask: {sub_task} not in start time")
-                    return
-            case _:
-                self.logger.error(f"profile: {self.profile_id}, task: {task_name}, subtask: {sub_task} unsupported status type")
-                return
-
-        return True
-
     def exe_sub_tasks(self, task_name):
         task_sub_steps = self.sql_info(task_sub_select_sql, (self.profile_id, task_name))
         self.logger.debug(f"exe_sub_tasks: {task_sub_steps}")
@@ -706,7 +670,18 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
 
         ### execute end sub task
         if end_sub_task:
-            self.handle_sub_tasks(task_name, end_sub_task)
+            ost = end_sub_task[0].get("subtask")
+            res = self.check_task(task_name, ost)
+            if not res:
+                self.logger.info(f"profile: {self.profile_id}, task: {task_name}, subtask: {ost} failed, try next one")
+            else:
+                res = self.handle_sub_tasks(task_name, end_sub_task)
+                update_params = (self.profile_id, task_name, ost)
+                if not res:
+                    self.update_records(records_failed_by_subtask, update_params)
+                    self.logger.error(f"failed execute task: {task_name}, other task: {ost}")
+                else:
+                    self.update_records(records_finish_by_subtask, update_params)
 
         return sub_failed_count < len(other_list)
 
@@ -714,7 +689,7 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
         ### shuffle the task
         for task in self.get_random_items(self.tasks):
             task_name = task.get('name')
-            # if task_name not in ["xtremeverse"]:
+            # if task_name not in ["nftfeed"]:
             #     continue
 
             # check if task is failed or already running
@@ -733,6 +708,7 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
                 continue
 
             ### update DB task finished.
+            # if not self.schedule_task:
             self.update_records(records_finish_by_task, update_params)
             self.logger.info(f"finish profile: {self.profile_id}, task: {task_name}")
 
@@ -774,6 +750,7 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
         self.known_handles.append(self.task_handle)
         self.logger.info(f"new  tasks handle is: {self.task_handle}")
 
+        ### normal task or schedule task
         self.run_tasks_by_profile()
 
         ### all task finished for current profile, close the browser
@@ -798,6 +775,7 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
 def main():
     st = WebTask()
     st.run_web_task()
+    st.close_xvfb()
 
 
 if __name__ == '__main__':

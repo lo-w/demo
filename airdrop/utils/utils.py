@@ -32,7 +32,7 @@ import subprocess
 import psycopg2
 import psycopg2.extras
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from os import path
 from logging import handlers
@@ -42,10 +42,23 @@ from subprocess import check_output
 
 
 profiles_select_sql       = "SELECT * FROM profiles;"
+profiles_select_by_az     = "SELECT * FROM profiles where timezone=%s;"
 profile_select_sql        = "SELECT * FROM profiles where profile=%s;"
-records_select_by_profile = "SELECT * FROM records  where profile=%s order by update_time desc limit 1;"
-extensions_select_sql     = "SELECT * FROM extensions where login is True;"
-tasks_select_sql          = "SELECT distinct name FROM tasks where name not in ('metamask','unisat','keplr','fallback');"
+extensions_select_sql     = "SELECT * FROM extensions where login=true;"
+az_select_sql             = "SELECT distinct timezone FROM profiles;"
+tasks_select_sql          = "SELECT distinct name     FROM tasks   where name not in ('metamask','unisat','keplr','fallback');"
+tasks_select_schedule_sql = "SELECT distinct task     FROM records where schedule=true;"
+records_insert_by_task    = "INSERT  INTO  records(profile,task) values(%s, %s);"
+records_insert_by_subtask = "INSERT  INTO  records(profile,task,subtask) values(%s, %s, %s);"
+records_select_by_task    = "SELECT * FROM records where profile=%s and task=%s and subtask is null;"
+records_select_by_subtask = "SELECT * FROM records where profile=%s and task=%s and subtask=%s;"
+records_select_profile    = "SELECT * FROM records where profile=%s and schedule=false and subtask is not null order by update_time desc limit 1;"
+records_select_schedule   = "SELECT * FROM records where profile=%s and schedule=true  and task=%s and subtask=%s order by update_time desc limit 1;"
+records_select_by_sc      = """
+                             SELECT * FROM 
+                               (SELECT r.profile,r.task,r.subtask,r.schedule,r.status,r.update_time,p.pass,p.proxy,p.timezone,p.directory FROM records r left join profiles p on r.profile=p.profile ) rp
+                             where rp.profile=%s and rp.schedule=true and rp.status=true and rp.subtask is not null;
+                            """
 
 
 class InitConf():
@@ -69,7 +82,7 @@ class InitConf():
         self.wait_handle      = 10
         self.WEB_PAGE_TIMEOUT = 30
 
-        self.confidence       = 0.9 if self.pf == "Windows" else 0.8
+        self.confidence       = 0.9 if self.pf == "Windows" else 0.85
         self.r                = 4
 
         self.split_str        = ";;"
@@ -86,10 +99,13 @@ class InitConf():
         self.wallet_pass      = ""
         self.last_net         = ""
         self.profile_id       = ""
-        self.wallet_operation_list = ["confirm", "cancel", "switchnet", "signpay", "sign"]
+        self.wallet_operation_list = ["confirm", "cancel", "connect", "switchnet", "signpay", "sign"]
         self.RLIST            = [",", "-"]
         self.JSON_ID          = '{"id": "%s"}'
-        self.background       = True
+        self.background       = True if self.pf == "Linux" else False
+        self.schedule_task    = False
+        self.profile_running  = False
+        self.xvfb_pid_cmd     = "pidof Xvfb"
         self.init_pyautogui()
         self.position         = ["0,0","%s,0" % str(int(self.getMWH()[0])/2)]
         self.browser          = "chrome"
@@ -186,15 +202,24 @@ class InitConf():
         self.exit_code = process.returncode
         return stdout.rstrip("\n"), stderr
 
-    def init_pyautogui(self):
-        if self.background:
-            from pyvirtualdisplay.display import Display
-            os.environ["DISPLAY"] = ":99"
-            res, _ = self.exe_shell("pidof Xvfb")
-            if res:
-                self.exe_shell(f"kill {res}")
+    def close_xvfb(self):
+        xvfb_pid, _ = self.exe_shell(self.xvfb_pid_cmd)
+        if xvfb_pid:
+            self.logger.info(f"close xvfb...")
+            self.exe_shell(f"kill {xvfb_pid}")
+
+    def create_xvfb(self):
+        from pyvirtualdisplay.display import Display
+        os.environ["DISPLAY"] = ":99"
+        xvfb_pid, _ = self.exe_shell(self.xvfb_pid_cmd)
+        if not xvfb_pid:
+            self.logger.info(f"create new xvfb...")
             disp = Display(visible=True, size=(2560, 1440), backend="xvfb", use_xauth=True, extra_args=[":99"])
             disp.start()
+
+    def init_pyautogui(self):
+        if self.background:
+            self.create_xvfb()
 
         match self.pf:
             case "Windows":
@@ -206,6 +231,7 @@ class InitConf():
 
         import pyautogui
         self._pyautogui = pyautogui
+        self.tweens = [self._pyautogui.easeInOutQuart, self._pyautogui.easeInOutQuint, self._pyautogui.easeInOutSine, self._pyautogui.easeInOutExpo]
 
     def getMWH(self):
         if self.background:
@@ -299,10 +325,10 @@ class InitConf():
     def get_driver(self):
         pass
 
+
 class MouseTask(InitConf):
     def __init__(self) -> None:
         super().__init__()
-        self.tweens = [self._pyautogui.easeInOutQuart, self._pyautogui.easeInOutQuint, self._pyautogui.easeInOutSine, self._pyautogui.easeInOutExpo]
 
     def mouse(self, lo, o):
         """
@@ -512,14 +538,23 @@ class PostGressDB(InitConf):
             # return that value
             return self.cur.lastrowid
 
+    def get_azs(self):
+        return self.sql_info(az_select_sql)
+
     def get_tasks(self):
         return self.sql_info(tasks_select_sql)
+
+    def get_tasks_schedule(self):
+        return self.sql_info(tasks_select_schedule_sql)
 
     def get_extensions(self):
         return self.sql_info(extensions_select_sql)
 
     def get_profiles(self):
         return self.sql_info(profiles_select_sql)
+
+    def get_profiles_by_az(self, az):
+        return self.sql_info(profiles_select_by_az, (az,))
 
     def get_profile(self, profile_id):
         profile_item = self.sql_info(profile_select_sql, (profile_id,))
@@ -532,29 +567,106 @@ class PostGressDB(InitConf):
     def update_records(self, update_record, params):
         return self.sql_info(update_record, params, False)
 
-    def check_profile(self):
-        res = self.get_records(records_select_by_profile, (self.profile_id,))
+    def get_cur_time_date(self):
+        current_time = datetime.now(timezone.utc)
+        current_date = current_time.date()
+        return current_time, current_date
+
+    def check_records(self, records_sql, params):
+        res = self.get_records(records_sql, params)
         if res:
+            _, current_date = self.get_cur_time_date()
             update_time = res.get('update_time')
             update_date = update_time.date()
-            if self.current_date == update_date:
-                self.logger.info(f"profile: {self.profile_id} already running today")
+            if current_date == update_date:
+                self.logger.info(f"profile: {",".join(params)} already running today")
                 return
         return True
 
-    def profile_pre_check(self, profile_check=True):
-        self.current_time = datetime.now(timezone.utc)
-        self.current_date = self.current_time.date()
-        if profile_check:
-            res = self.check_profile()
-            if not res:
-                return
+    def get_tasks_extensions(self, profile, schedule_task=False):
+        self.logger.debug(f"schedule_task: {schedule_task}")
         if not self.extensions:
             self.extensions = self.get_extensions()
 
-        if not self.tasks:
+        #self.tasks = self.get_tasks()
+        if schedule_task:
+            #self.tasks = [profile.get('task')]
+            self.tasks = [{"name": profile.get('task')}]
+        else:
             ### get tasks
             self.tasks = self.get_tasks()
-            self.logger.debug(f"successfully get tasks: {self.tasks}")
+        self.logger.info(f"successfully get tasks: {self.tasks}")
+
+    def profile_records_check(self, profile, normal_check=False):
+        # check profile normal task running or not
+        self.logger.debug(f"normal_check: {normal_check}")
+        profile_id = profile.get('profile')
+        if normal_check:
+            res = self.check_records(records_select_profile, (profile_id,))
+        else:
+            task_name = profile.get('task')
+            sub_task_name = profile.get('subtask')
+            res = self.check_records(records_select_schedule, (profile_id, task_name, sub_task_name))
+        return res
+
+    def schedule_tasks_by_profile(self, profile_id):
+        _, current_date = self.get_cur_time_date()
+        records = self.sql_info(records_select_by_sc, (profile_id,))
+        #print(records)
+        running_records = []
+        for record in records:
+            # print(record)
+            update_time = record.get('update_time')
+            update_date = update_time.date()
+            if current_date == update_date:
+                task_name = record.get('task')
+                sub_task_name = record.get('subtask')
+                self.logger.info(f"profile: {profile_id} schedule task: {task_name}, subtask:{sub_task_name} already running today")
+                continue
+            running_records.append(record)
+        return running_records
+
+    def check_task(self, task_name, sub_task=None):
+        current_time, current_date = self.get_cur_time_date()
+        if sub_task:
+            records_select = records_select_by_subtask
+            records_insert = records_insert_by_subtask
+            params = (self.profile_id, task_name, sub_task)
+        else:
+            records_select = records_select_by_task
+            records_insert = records_insert_by_task
+            params = (self.profile_id, task_name)
+
+        res = self.get_records(records_select, params)
+
+        if not res:
+            self.logger.info(f"profile: {self.profile_id}, task: {task_name}, subtask: {sub_task} not exists")
+            self.update_records(records_insert, params)
+            return True
+
+        status = res.get('status')
+        schedule = res.get('schedule')
+        update_time = res.get('update_time') or datetime.strptime("2020-01-01", "%Y-%m-%d")
+        update_date = update_time.date()
+
+        match status:
+            case 0:
+                self.logger.error(f"profile: {self.profile_id}, task: {task_name}, subtask: {sub_task} failed last time")
+                return
+            case 1:
+                if current_date == update_date:
+                    self.logger.info(f"profile: {self.profile_id}, task: {task_name}, subtask: {sub_task} already running today")
+                    # for normal task
+                    if not self.schedule_task or (sub_task and not schedule):
+                        return
+
+        if schedule:
+            schedule_time = datetime.strptime(f"{current_date} {update_time.strftime("%H:%M:%S")}", "%Y-%m-%d %H:%M:%S")
+            # print('-'*20)
+            # print(current_time)
+            # print(schedule_time)
+            if current_date <= update_date or current_time.timestamp() < schedule_time.timestamp():
+                self.logger.info(f"profile: {self.profile_id}, task: {task_name}, subtask: {sub_task} scedule task not in start time, update time: {update_time}")
+                return
         return True
 
