@@ -104,6 +104,7 @@ class ChromeBrowser(PostGressDB):
         return "socks://192.168.1.13:10808"
 
     def run_profile(self, profile, normal_check=False, schedule_task=False):
+        # profile.update({"task":"taker","schedule_task":True})
         self.profile_id = profile.get('profile')
         self.schedule_task = profile.get('schedule_task')
         # self.schedule_task = True
@@ -119,6 +120,8 @@ class ChromeBrowser(PostGressDB):
         self.chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
         # self.chrome_options.add_argument('--no-sandbox')
         # self.chrome_options.add_argument('--headless')
+        self.chrome_options.add_argument('--no-first-run')
+        self.chrome_options.add_argument('--no-default-browser-check')
         self.chrome_options.add_argument('--disable-gpu')
         # self.chrome_options.add_argument('--disable-dev-shm-usage')
         self.chrome_options.add_argument('--hide-crash-restore-bubble')
@@ -516,6 +519,8 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
         match operation:
             case "click":
                 self.element_click(task_ele)
+            case "find":
+                self.logger.info(f"ele finded with unsupported operation: {operation}")
             case "clear":
                 task_ele.clear()
             case "input":
@@ -668,8 +673,10 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
             self.update_records(records_finish_by_subtask, update_params)
             self.logger.info(f"finish execute task: {task_name}, other task: {ost}")
 
+        total_task_count = len(other_list)
         ### execute end sub task
         if end_sub_task:
+            total_task_count += 1
             ost = end_sub_task[0].get("subtask")
             res = self.check_task(task_name, ost)
             if not res:
@@ -678,12 +685,13 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
                 res = self.handle_sub_tasks(task_name, end_sub_task)
                 update_params = (self.profile_id, task_name, ost)
                 if not res:
+                    sub_failed_count += 1
                     self.update_records(records_failed_by_subtask, update_params)
                     self.logger.error(f"failed execute task: {task_name}, other task: {ost}")
                 else:
                     self.update_records(records_finish_by_subtask, update_params)
 
-        return sub_failed_count < len(other_list)
+        return sub_failed_count < total_task_count
 
     def run_tasks_by_profile(self):
         ### shuffle the task
@@ -775,7 +783,7 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
 def main():
     st = WebTask()
     st.run_web_task()
-    st.close_xvfb()
+    # st.close_xvfb()
 
 
 if __name__ == '__main__':

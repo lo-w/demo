@@ -19,6 +19,7 @@ apt install xclip
 '''
 import os
 import time
+import pytz
 import pyotp
 import ctypes
 import psutil
@@ -52,17 +53,18 @@ records_insert_by_task    = "INSERT  INTO  records(profile,task) values(%s, %s);
 records_insert_by_subtask = "INSERT  INTO  records(profile,task,subtask) values(%s, %s, %s);"
 records_select_by_task    = "SELECT * FROM records where profile=%s and task=%s and subtask is null;"
 records_select_by_subtask = "SELECT * FROM records where profile=%s and task=%s and subtask=%s;"
-records_select_profile    = "SELECT * FROM records where profile=%s and schedule=false and subtask is not null order by update_time desc limit 1;"
+records_select_profile    = "SELECT * FROM records where profile=%s and schedule=false and task not in (select distinct task from records where schedule=true) order by update_time desc limit 1;"
 records_select_schedule   = "SELECT * FROM records where profile=%s and schedule=true  and task=%s and subtask=%s order by update_time desc limit 1;"
 records_select_by_sc      = """
                              SELECT * FROM 
                                (SELECT r.profile,r.task,r.subtask,r.schedule,r.status,r.update_time,p.pass,p.proxy,p.timezone,p.directory FROM records r left join profiles p on r.profile=p.profile ) rp
                              where rp.profile=%s and rp.schedule=true and rp.status=true and rp.subtask is not null;
                             """
+schedule_hours_sql        = "SELECT val FROM inputs WHERE fallback=%s"
 
 
 class InitConf():
-    def __init__(self) -> None:
+    def __init__(self, background=False) -> None:
         self.pf               = platform.system()
         # self.new_title      = "Version"
         self.open_page        = "chrome://version/"
@@ -83,7 +85,7 @@ class InitConf():
         self.WEB_PAGE_TIMEOUT = 30
 
         self.confidence       = 0.9 if self.pf == "Windows" else 0.85
-        self.r                = 4
+        self.r                = 5
 
         self.split_str        = ";;"
         self.wallets_pre      = ["meta_", "okx_"]
@@ -161,6 +163,9 @@ class InitConf():
     def sleep(self, sec=1):
         time.sleep(sec)
 
+    def gen_start_time(self, base_time, days=0, hours=0, minutes=0, seconds=0):
+        return base_time + timedelta(days=days, hours=hours, minutes=minutes, seconds=seconds)
+
     def get_round(self, mi, mx, decimal_places=2):
         return round(random.uniform(float(mi), float(mx)), int(decimal_places))
 
@@ -206,16 +211,18 @@ class InitConf():
         xvfb_pid, _ = self.exe_shell(self.xvfb_pid_cmd)
         if xvfb_pid:
             self.logger.info(f"close xvfb...")
-            self.exe_shell(f"kill {xvfb_pid}")
+            self.exe_shell(f"sudo systemctl stop xvfb")
+            # self.exe_shell(f"kill {xvfb_pid}")
 
     def create_xvfb(self):
-        from pyvirtualdisplay.display import Display
         os.environ["DISPLAY"] = ":99"
         xvfb_pid, _ = self.exe_shell(self.xvfb_pid_cmd)
         if not xvfb_pid:
             self.logger.info(f"create new xvfb...")
-            disp = Display(visible=True, size=(2560, 1440), backend="xvfb", use_xauth=True, extra_args=[":99"])
-            disp.start()
+            self.exe_shell(f"sudo systemctl start xvfb")
+            # from pyvirtualdisplay.display import Display
+            # disp = Display(visible=True, size=(2560, 1440), backend="xvfb", use_xauth=True, extra_args=[":99"])
+            # disp.start()
 
     def init_pyautogui(self):
         if self.background:
@@ -393,7 +400,7 @@ class MouseTask(InitConf):
             except:
                 self.wait_input()
         if not s:
-            self.logger.info(f"cannot get image location with path: {v}")
+            self.logger.info(f"cannot get image location with path: {v}, confidence: {self.confidence}")
         return None
 
     def execute_step(self, o, v, s, r, u):
@@ -439,7 +446,7 @@ class MouseTask(InitConf):
 
         vs = self.validate_step(o, v)
         if not vs:
-            self.logger.error("validate failed...")
+            self.logger.error(f"validate failed with step: {o}, {v}...")
             return
         self.logger.debug(f"start  mouse step: {es}")
         result = self.execute_step(o, v, s, r, u)
@@ -564,6 +571,12 @@ class PostGressDB(InitConf):
         res = self.sql_info(records_sql, params)
         return res[0] if res else None
 
+    def get_schedule_hours(self, sd_profile):
+        task = sd_profile.get('task')
+        subtask = sd_profile.get('subtask')
+        res = self.get_records(schedule_hours_sql, (f"{task}_{subtask}",))
+        return int(res.get('val')) if res else 24
+
     def update_records(self, update_record, params):
         return self.sql_info(update_record, params, False)
 
@@ -571,17 +584,6 @@ class PostGressDB(InitConf):
         current_time = datetime.now(timezone.utc)
         current_date = current_time.date()
         return current_time, current_date
-
-    def check_records(self, records_sql, params):
-        res = self.get_records(records_sql, params)
-        if res:
-            _, current_date = self.get_cur_time_date()
-            update_time = res.get('update_time')
-            update_date = update_time.date()
-            if current_date == update_date:
-                self.logger.info(f"profile: {",".join(params)} already running today")
-                return
-        return True
 
     def get_tasks_extensions(self, profile, schedule_task=False):
         self.logger.debug(f"schedule_task: {schedule_task}")
@@ -597,37 +599,77 @@ class PostGressDB(InitConf):
             self.tasks = self.get_tasks()
         self.logger.info(f"successfully get tasks: {self.tasks}")
 
+    def check_schedule_time(self, profile, update_time, cur_time):
+        schedule_hours = self.get_schedule_hours(profile)
+        new_start_time = self.gen_start_time(update_time, hours=schedule_hours)
+        if cur_time < new_start_time:
+            profile_id = profile.get('profile')
+            task_name = profile.get('task')
+            subtask = profile.get('subtask')
+            self.logger.info(f"profile: {profile_id}, schedule task: {task_name}, subtask:{subtask}  not in start time: {new_start_time}")
+            return
+        return True
+
     def profile_records_check(self, profile, normal_check=False):
         # check profile normal task running or not
         self.logger.debug(f"normal_check: {normal_check}")
         profile_id = profile.get('profile')
+        cur_time, cur_date = self.get_cur_time_date()
+
         if normal_check:
-            res = self.check_records(records_select_profile, (profile_id,))
+            params = (profile_id,)
+            res = self.get_records(records_select_profile, params)
         else:
             task_name = profile.get('task')
             sub_task_name = profile.get('subtask')
-            res = self.check_records(records_select_schedule, (profile_id, task_name, sub_task_name))
-        return res
+            params = (profile_id, task_name, sub_task_name)
+            res = self.get_records(records_select_schedule, params)
+
+        if res:
+            already_run = ",".join(params)
+            update_time = res.get('update_time').astimezone(pytz.utc)
+            update_date = update_time.date()
+            if normal_check:
+                if cur_date == update_date:
+                    self.logger.info(f"profile: {already_run} already running today")
+                    return
+            else:
+                last_status = res.get('status')
+                if not last_status:
+                    self.logger.error(f"schedule task: {already_run} failed last time")
+                    return
+
+                res = self.check_schedule_time(profile, update_time, cur_time)
+                if not res:
+                    return
+        return True
 
     def schedule_tasks_by_profile(self, profile_id):
-        _, current_date = self.get_cur_time_date()
+        cur_time, _ = self.get_cur_time_date()
         records = self.sql_info(records_select_by_sc, (profile_id,))
         #print(records)
         running_records = []
         for record in records:
-            # print(record)
-            update_time = record.get('update_time')
-            update_date = update_time.date()
-            if current_date == update_date:
-                task_name = record.get('task')
-                sub_task_name = record.get('subtask')
-                self.logger.info(f"profile: {profile_id} schedule task: {task_name}, subtask:{sub_task_name} already running today")
+            update_time = record.get('update_time').astimezone(pytz.utc)
+
+            # task_name = record.get('task')
+            # subtask = record.get('subtask')
+            # schedule_hours = self.get_schedule_hours(record)
+            # new_start_time = self.gen_start_time(update_time, hours=schedule_hours)
+            # new_start_time = self.get_new_schedule_time(record, update_time)
+            # if cur_time < new_start_time:
+            #     self.logger.info(f"profile: {profile_id}, schedule task: {task_name}, subtask:{subtask}  not in start time: {new_start_time}")
+            #     continue
+
+            res = self.check_schedule_time(record, update_time, cur_time)
+            if not res:
                 continue
+
             running_records.append(record)
         return running_records
 
     def check_task(self, task_name, sub_task=None):
-        current_time, current_date = self.get_cur_time_date()
+        cur_time, current_date = self.get_cur_time_date()
         if sub_task:
             records_select = records_select_by_subtask
             records_insert = records_insert_by_subtask
@@ -646,7 +688,7 @@ class PostGressDB(InitConf):
 
         status = res.get('status')
         schedule = res.get('schedule')
-        update_time = res.get('update_time') or datetime.strptime("2020-01-01", "%Y-%m-%d")
+        update_time = res.get('update_time').astimezone(pytz.utc) or datetime.strptime("2020-01-01", "%Y-%m-%d").astimezone(pytz.utc)
         update_date = update_time.date()
 
         match status:
@@ -661,12 +703,8 @@ class PostGressDB(InitConf):
                         return
 
         if schedule:
-            schedule_time = datetime.strptime(f"{current_date} {update_time.strftime("%H:%M:%S")}", "%Y-%m-%d %H:%M:%S")
-            # print('-'*20)
-            # print(current_time)
-            # print(schedule_time)
-            if current_date <= update_date or current_time.timestamp() < schedule_time.timestamp():
-                self.logger.info(f"profile: {self.profile_id}, task: {task_name}, subtask: {sub_task} scedule task not in start time, update time: {update_time}")
+            res = self.check_schedule_time(res, update_time, cur_time)
+            if not res:
                 return
         return True
 
