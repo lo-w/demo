@@ -16,7 +16,6 @@ import psutil
 import requests
 import unicodedata
 
-from datetime import datetime, timezone, timedelta
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
@@ -73,205 +72,7 @@ records_failed_by_subtask = "UPDATE records set status=false where profile=%s an
 
 
 
-class ChromeBrowser(PostGressDB):
-    def __init__(self) -> None:
-        """
-        chromedriver: https://googlechromelabs.github.io/chrome-for-testing/#stable
-        """
-        super().__init__()
-
-    def check_browser(self):
-        return True
-
-    def open_browser(self):
-        self.driver.get(self.open_page)
-        return self.driver
-
-    def close_browser(self):
-        if self.driver:
-            self.driver.quit()
-
-    def check_get_proxy(self):
-        return True
-
-    def get_proxy(self):
-        proxy = {
-            "socks5": "192.168.1.9:10000"
-        }
-        return proxy
-
-    def get_proxy_by_profile(self, profile_id):
-        return "socks://192.168.1.13:10808"
-
-    def run_profile(self, profile, normal_check=False, schedule_task=False):
-        # profile.update({"task":"taker","schedule_task":True})
-        self.profile_id = profile.get('profile')
-        self.schedule_task = profile.get('schedule_task')
-        # self.schedule_task = True
-        res = self.profile_records_check(profile, normal_check)
-        if not res:
-            return
-        self.get_tasks_extensions(profile, schedule_task)
-        directory = profile.get('directory')
-        # if self.profile_id != '0e0ced5774fe508072b34df1f972cae3':
-        #    return
-        self.logger.info(f"start  profile: {self.profile_id}")
-        self.chrome_options = Options()
-        self.chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
-        # self.chrome_options.add_argument('--no-sandbox')
-        # self.chrome_options.add_argument('--headless')
-        self.chrome_options.add_argument('--no-first-run')
-        self.chrome_options.add_argument('--no-default-browser-check')
-        self.chrome_options.add_argument('--disable-gpu')
-        # self.chrome_options.add_argument('--disable-dev-shm-usage')
-        self.chrome_options.add_argument('--hide-crash-restore-bubble')
-        self.chrome_options.add_argument('--ignore-certificate-errors')
-        self.chrome_options.add_argument('--ignore-ssl-errors')
-        self.chrome_options.add_argument('--window-size=1200,1400')
-        self.chrome_options.add_argument(f"--user-data-dir={os.path.join(self.user_data_dir, directory)}")
-        # self.chrome_options.add_experimental_option("debuggerAddress", res['data']['http'])
-        # self.driver = webdriver.Chrome(service=Service(executable_path=self.driver_path), options=self.chrome_options)
-        # self.driver_path.replace("%s", "")
-        self.driver = self.get_driver()
-        res = self.open_browser()
-        if not res:
-            self.logger.error(f"open profile: {self.profile_id} failed...")
-            return
-
-        res = self.exe_profile()
-        self.known_handles = []
-        if not res:
-            self.logger.error(f"running profile: {self.profile_id} failed...")
-
-    def run_profiles(self):
-        profiles = self.get_profiles()
-        for profile in self.get_random_items(profiles):
-            self.run_profile(profile)
-            self.close_browser()
-
-
-class BitBrowser(PostGressDB):
-    def __init__(self) -> None:
-        super().__init__()
-        self.headers = {'Content-Type': 'application/json'}
-        self.BIT_URL = "http://127.0.0.1:54345"
-        self.driver_path = None
-
-    def open_browser(self):    # 直接指定ID打开窗口，也可以使用 createBrowser 方法返回的ID
-        return requests.post(f"{self.BIT_URL}/browser/open", data=self.JSON_ID % self.profile_id, headers=self.headers).json()
-
-    def close_browser(self):   # 关闭窗口
-        requests.post(f"{self.BIT_URL}/browser/close", data=self.JSON_ID % self.profile_id, headers=self.headers).json()
-
-    def get_bit_profiles(self):
-        return requests.post(f"{self.BIT_URL}/browser/list", data=json.dumps({"page":0,"pageSize":10}), headers=self.headers).json()
-
-    def get_bit_url(self):
-        url = "http://127.0.0.1:"
-        for proc in psutil.process_iter():
-            if proc.name() == '比特浏览器.exe':
-                for x in proc.connections():
-                    if x.status == psutil.CONN_LISTEN:
-                        url = url + str(x.laddr.port)
-                        return url
-        return None
-
-    def check_browser(self):
-        BIT_URL = self.get_bit_url()
-        return BIT_URL or False
-
-    def run_profile(self, profile, normal_check=False):
-        self.profile_id = profile.get('id')
-        res = self.profile_records_check(profile, normal_check)
-        if not res:
-            return
-        # if self.profile_id != '580cd51c8ff835db4ccba5514a461d14':
-        #     continue
-        self.logger.info(f"start  profile: {self.profile_id}")
-        # profile_path = profile.get('path')
-        # profile_extensions = ",".join([os.path.join(profile_path,"Extensions", extension) for extension in extensions])
-        # proxy = get_proxy_by_profile(profile_id)
-
-        res = self.open_browser()
-        if not res['success']:
-            self.logger.error(f"open profile: {self.profile_id} failed...")
-            ### need to update the DB status which profile is failed
-            return
-
-        self.chrome_options = Options()
-        # position = self.get_position()
-        # chrome_options.add_argument("--window-position=%s" % position)
-        self.chrome_options.add_experimental_option("debuggerAddress", res['data']['http'])
-        self.driver_path = res['data']['driver']
-
-        # chrome_options.add_argument("--window-size=1280,720")
-        # chrome_options.add_argument("--disable-component-update")
-        # chrome_options.add_argument("--no-first-run")
-        # chrome_options.add_argument("--no-default-browser-check")
-        # chrome_options.add_argument("--password-store=basic")
-        # chrome_options.add_argument("--user-data-dir=%s" % profile_path)
-        # chrome_options.add_argument("--fingerprint-config=%s" % profile_path)
-        # chrome_options.add_argument("--load-extension=%s" % profile_extensions)
-        # chrome_options.add_argument("--proxy-server=%s" % proxy)
-        # profile_driver = webdriver.Chrome(service=Service(executable_path=executable_path), options=chrome_options)
-        self.driver = self.get_driver()
-        res = self.exe_profile()
-        if not res:
-            return
-
-    def run_profiles(self):
-        profile_resp = self.get_bit_profiles()
-        profiles = profile_resp.get('data').get('list')
-        ### random select profile to execute
-        for profile in self.get_random_items(profiles):
-            self.run_profile(profile)
-
-
-class Wallets(MouseTask, PostGressDB):
-    ### https://stackoverflow.com/questions/76252205/runtime-callfunctionon-threw-exception-error-lavamoat-property-proxy-of-gl
-    ### https://github.com/MetaMask/metamask-extension
-    ### https://github.com/LavaMoat/LavaMoat/pull/360#issuecomment-1547726986
-    ### https://pypi.org/project/auto-metamask/
-    ### https://dev.to/ltmenezes/automated-dapps-scrapping-with-selenium-and-metamask-2ae9
-    ### https://github.com/MetaMask/metamask-extension/issues/19018
-
-    def __init__(self) -> None:
-        super().__init__()
-
-    def login_wallet_task(self, extension):
-        ext_id = extension.get("id")
-        self.logger.info(f"login to wallet: {ext_id}...")
-        login_steps = self.sql_info(wallet_steps_select_sql, (ext_id, 'login'))
-        return self.exe_steps(login_steps)
-
-    def login_wallets(self):
-        # if self.pf == "Linux":
-        #     wall_handle = self.get_handle_res("MetaMask")
-        # else:
-        wall_handle = self.get_new_handle()
-        self.logger.info(f"new wallet handle is: {wall_handle}")
-        if not wall_handle:
-            self.logger.error("get wallet handle failed...")
-            return
-        for extension in self.extensions:
-            # if extension.get("id") != "dmkamcknogkgcdfhhbddcghachkejeap":
-            #     continue
-            res = self.login_wallet_task(extension)
-            if not res:
-                return
-        ### close login tab then switch back to origin tab...
-        self.driver.close()
-        self.driver.switch_to.window(self.orig_handle)
-        return True
-
-    def reset_last_net(self, cur_net):
-        if self.last_net == cur_net:
-            return True
-        self.last_net = cur_net
-        return
-
-
-class SeleniumTask(MouseTask):
+class SeleniumTask(MouseTask, PostGressDB):
     def __init__(self) -> None:
         super().__init__()
         self.driver      = None
@@ -280,6 +81,7 @@ class SeleniumTask(MouseTask):
         self.ignored_exceptions=(NoSuchElementException, StaleElementReferenceException,)
 
     def get_driver(self):
+        # do not set http/https proxy, selenium shall failed to start
         return webdriver.Chrome(service=Service(executable_path=self.driver_path), options=self.chrome_options)
 
     def get_wait(self, driver, wait_time):
@@ -392,6 +194,7 @@ class SeleniumTask(MouseTask):
         return self.get_handle_res(self.new_title)
 
     def handle_url(self, findvalue, **kwargs):
+        failed_count = 0
         for _ in range(self.r):
             try:
                 self.driver.get(findvalue)
@@ -400,9 +203,11 @@ class SeleniumTask(MouseTask):
                 break
             except Exception as e:
                 self.logger.error(f"failed to open url: {findvalue}...")
+                failed_count += 1
+                self.wait_wallet()
         self.logger.info(f"wait for a moment to let url: {findvalue} load...")
         self.wait_page_load()
-        return True
+        return failed_count < self.r
 
     def handle_mouse(self, findby, findvalue, val, subtask, **kwargs):
         if findby == "replace":
@@ -425,7 +230,220 @@ class SeleniumTask(MouseTask):
         return True
 
 
-class WebTask(Wallets, SeleniumTask, ChromeBrowser):
+class Wallets(SeleniumTask):
+    ### https://stackoverflow.com/questions/76252205/runtime-callfunctionon-threw-exception-error-lavamoat-property-proxy-of-gl
+    ### https://github.com/MetaMask/metamask-extension
+    ### https://github.com/LavaMoat/LavaMoat/pull/360#issuecomment-1547726986
+    ### https://pypi.org/project/auto-metamask/
+    ### https://dev.to/ltmenezes/automated-dapps-scrapping-with-selenium-and-metamask-2ae9
+    ### https://github.com/MetaMask/metamask-extension/issues/19018
+
+    def __init__(self) -> None:
+        super().__init__()
+
+    def login_wallet_task(self, extension):
+        ext_id = extension.get("id")
+        self.logger.info(f"login to wallet: {ext_id}...")
+        login_steps = self.sql_info(wallet_steps_select_sql, (ext_id, 'login'))
+        return self.exe_steps(login_steps)
+
+    def login_wallets(self):
+        # if self.pf == "Linux":
+        #     wall_handle = self.get_handle_res("MetaMask")
+        # else:
+        self.wall_handle = self.get_new_handle()
+        self.logger.info(f"new wallet handle is: {self.wall_handle}")
+        if not self.wall_handle:
+            self.logger.error("get wallet handle failed...")
+            return
+        for extension in self.extensions:
+            # if extension.get("id") != "dmkamcknogkgcdfhhbddcghachkejeap":
+            #     continue
+            res = self.login_wallet_task(extension)
+            if not res:
+                return
+        ### close login tab then switch back to origin tab...
+        # self.driver.close()
+        self.driver.switch_to.window(self.orig_handle)
+        return True
+
+    def reset_last_net(self, cur_net):
+        if self.last_net == cur_net:
+            return True
+        self.last_net = cur_net
+        return
+
+
+class BitBrowser(SeleniumTask):
+    def __init__(self) -> None:
+        super().__init__()
+        self.headers = {'Content-Type': 'application/json'}
+        self.BIT_URL = "http://127.0.0.1:54345"
+        self.driver_path = None
+
+    def open_browser(self):    # 直接指定ID打开窗口，也可以使用 createBrowser 方法返回的ID
+        return requests.post(f"{self.BIT_URL}/browser/open", data=self.JSON_ID % self.profile_id, headers=self.headers).json()
+
+    def close_browser(self):   # 关闭窗口
+        requests.post(f"{self.BIT_URL}/browser/close", data=self.JSON_ID % self.profile_id, headers=self.headers).json()
+
+    def get_bit_profiles(self):
+        return requests.post(f"{self.BIT_URL}/browser/list", data=json.dumps({"page":0,"pageSize":10}), headers=self.headers).json()
+
+    def get_bit_url(self):
+        url = "http://127.0.0.1:"
+        for proc in psutil.process_iter():
+            if proc.name() == '比特浏览器.exe':
+                for x in proc.connections():
+                    if x.status == psutil.CONN_LISTEN:
+                        url = url + str(x.laddr.port)
+                        return url
+        return None
+
+    def check_browser(self):
+        BIT_URL = self.get_bit_url()
+        return BIT_URL or False
+
+    def run_profile(self, profile, normal_check=False):
+        self.profile_id = profile.get('id')
+        res = self.profile_records_check(profile, normal_check)
+        if not res:
+            return
+        # if self.profile_id != '580cd51c8ff835db4ccba5514a461d14':
+        #     continue
+        self.logger.info(f"start  profile: {self.profile_id}")
+        # profile_path = profile.get('path')
+        # profile_extensions = ",".join([os.path.join(profile_path,"Extensions", extension) for extension in extensions])
+        # proxy = get_proxy_by_profile(profile_id)
+
+        res = self.open_browser()
+        if not res['success']:
+            self.logger.error(f"open profile: {self.profile_id} failed...")
+            ### need to update the DB status which profile is failed
+            return
+
+        self.chrome_options = Options()
+        # position = self.get_position()
+        # chrome_options.add_argument("--window-position=%s" % position)
+        self.chrome_options.add_experimental_option("debuggerAddress", res['data']['http'])
+        self.driver_path = res['data']['driver']
+
+        # chrome_options.add_argument("--window-size=1280,720")
+        # chrome_options.add_argument("--disable-component-update")
+        # chrome_options.add_argument("--no-first-run")
+        # chrome_options.add_argument("--no-default-browser-check")
+        # chrome_options.add_argument("--password-store=basic")
+        # chrome_options.add_argument("--user-data-dir=%s" % profile_path)
+        # chrome_options.add_argument("--fingerprint-config=%s" % profile_path)
+        # chrome_options.add_argument("--load-extension=%s" % profile_extensions)
+        # chrome_options.add_argument("--proxy-server=%s" % proxy)
+        # profile_driver = webdriver.Chrome(service=Service(executable_path=executable_path), options=chrome_options)
+        self.driver = self.get_driver()
+        res = self.exe_profile()
+        if not res:
+            return
+
+    def run_profiles(self):
+        profile_resp = self.get_bit_profiles()
+        profiles = profile_resp.get('data').get('list')
+        ### random select profile to execute
+        for profile in self.get_random_items(profiles):
+            self.run_profile(profile)
+
+
+class ChromeBrowser(SeleniumTask):
+    def __init__(self) -> None:
+        """
+        chromedriver: https://googlechromelabs.github.io/chrome-for-testing/#stable
+        """
+        super().__init__()
+
+    def check_browser(self):
+        return True
+
+    def open_browser(self):
+        return self.handle_url(self.open_page)
+
+    def close_browser(self):
+        if self.driver:
+            try:
+                self.driver.quit()
+            except Exception as e:
+                self.logger.error(f"failed close the driver: {e}")
+        self.wait_page_load()
+
+    def check_get_proxy(self):
+        return True
+
+    def get_proxy(self):
+        proxy = {
+            "socks5": "192.168.1.9:10000"
+        }
+        return proxy
+
+    def get_proxy_by_profile(self, profile_id):
+        return "socks://192.168.1.13:10808"
+
+    def run_profile(self, profile, normal_check=False, schedule_task=False):
+        # profile.update({"task":"taker","schedule_task":True})
+        self.profile_id = profile.get('profile')
+
+        # if self.profile_id != '0e0ced5774fe508072b34df1f972cae3':
+        #    return
+
+        self.schedule_task = profile.get('schedule_task')
+        # self.schedule_task = True
+        res = self.profile_records_check(profile, normal_check)
+        if not res:
+            return
+        self.get_tasks_extensions(profile, schedule_task)
+        directory = profile.get('directory')
+        proxy = profile.get('proxy')
+
+        self.logger.info(f"start  profile: {self.profile_id}")
+        self.chrome_options = Options()
+        # self.chrome_options.binary_location = "/home/lo/chrome/src/out/test/chrome"
+        self.chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+        self.chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        # self.chrome_options.add_argument('--no-sandbox')
+        # self.chrome_options.add_argument('--headless')
+        self.chrome_options.add_argument('--no-first-run')
+        self.chrome_options.add_argument('--no-default-browser-check')
+        self.chrome_options.add_argument('--disable-gpu')
+        # self.chrome_options.add_argument('--enable-unsafe-swiftshader')
+        # self.chrome_options.add_argument('--use-webgpu-adapter=swiftshader')
+        # self.chrome_options.add_argument('--disable-gpu-driver-bug-workarounds')
+        # self.chrome_options.add_argument('--disable-gpu-vendor-checks')
+        # self.chrome_options.add_argument('--disable-dev-shm-usage')
+        self.chrome_options.add_argument('--hide-crash-restore-bubble')
+        self.chrome_options.add_argument('--disable-web-security')
+        self.chrome_options.add_argument('--ignore-certificate-errors')
+        self.chrome_options.add_argument('--ignore-ssl-errors')
+        # self.chrome_options.add_argument('--window-size=1200,1400')
+        self.chrome_options.add_argument(f"--proxy-server={proxy}")
+        self.chrome_options.add_argument(f"--user-data-dir={os.path.join(self.user_data_dir, directory)}")
+        # self.chrome_options.add_experimental_option("debuggerAddress", res['data']['http'])
+        # self.driver = webdriver.Chrome(service=Service(executable_path=self.driver_path), options=self.chrome_options)
+        # self.driver_path.replace("%s", "")
+        self.driver = self.get_driver()
+        res = self.open_browser()
+        if not res:
+            self.logger.error(f"open profile: {self.profile_id} failed...")
+            return
+
+        res = self.exe_profile()
+        self.known_handles = []
+        if not res:
+            self.logger.error(f"running profile: {self.profile_id} failed...")
+
+    def run_profiles(self):
+        profiles = self.get_profiles()
+        for profile in self.get_random_items(profiles):
+            self.run_profile(profile)
+            self.close_browser()
+
+
+class WebTask(Wallets, ChromeBrowser):
     def __init__(self) -> None:
         self._log_name = __file__
         super().__init__()
@@ -476,6 +494,10 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
             switch_handle = wallet_task_steps[-1].get('val')
             self.wait_wallet()
             handle_res = self.get_handle_res(switch_handle)
+
+            if wallet_operation in ["confirm", "cancel", "connect", "switchnet"]:
+                self.driver.get("chrome-extension://nkbihfbeogaeaoehlefnkodbefgpgknn/notification.html")
+
             wallet_val = switch_handle
 
         elif wallet_operation == "switch":
@@ -702,7 +724,7 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
 
             # check if task is failed or already running
             res = self.check_task(task_name)
-            if not res:
+            if not res and (not self.schedule_task):
                 self.logger.info(f"profile: {self.profile_id}, task: {task_name} check failed, try next task")
                 continue
 
@@ -730,7 +752,9 @@ class WebTask(Wallets, SeleniumTask, ChromeBrowser):
 
         self.orig_handle = self.driver.current_window_handle
         self.logger.debug(f"original window is: {self.orig_handle}")
-        self.known_handles.append(self.orig_handle)
+        # add started handle in known handle
+        for handle in self.driver.window_handles:
+            self.known_handles.append(handle)
 
         profile_item = self.get_profile(self.profile_id)
         self.wallet_pass = profile_item.get('pass')

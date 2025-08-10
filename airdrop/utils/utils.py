@@ -18,6 +18,7 @@ apt install xclip
 
 '''
 import os
+import re
 import time
 import pytz
 import pyotp
@@ -36,8 +37,9 @@ import psycopg2.extras
 from datetime import datetime, timezone, timedelta
 
 from os import path
-from logging import handlers
 from configparser import ConfigParser
+from logging.handlers import TimedRotatingFileHandler
+
 from abc import abstractmethod
 from subprocess import check_output
 
@@ -63,8 +65,45 @@ records_select_by_sc      = """
 schedule_hours_sql        = "SELECT val FROM inputs WHERE fallback=%s"
 
 
+class CustomTimedRotatingFileHandler(TimedRotatingFileHandler):
+    def getFilesToDelete(self):
+        """
+        Identify old log files with custom format: logname.YYYYMMDD.log
+        Example: tasks.20250706.log
+        """
+        dir_name, base_name = os.path.split(self.baseFilename)
+        file_names = os.listdir(dir_name)
+
+        # Extract base name without ".log"
+        prefix = os.path.splitext(base_name)[0]
+
+        # Replace known date formats with regex
+        date_re = self.suffix
+        date_re = date_re.replace("%Y", r"\d{4}")
+        date_re = date_re.replace("%m", r"\d{2}")
+        date_re = date_re.replace("%d", r"\d{2}")
+        date_re = date_re.replace("%H", r"\d{2}")
+        date_re = date_re.replace("%M", r"\d{2}")
+        date_re = date_re.replace("%S", r"\d{2}")
+
+        # Match pattern: logname.YYYYMMDD.log
+        pattern = re.compile(rf"^{re.escape(prefix)}\.(?:{date_re})\.log$")
+        # pattern = re.compile(rf"^{re.escape(prefix)}(\d{{10}})\.log$")
+
+        result = []
+        for filename in file_names:
+            if pattern.match(filename):
+                result.append(os.path.join(dir_name, filename))
+
+        # Oldest to newest
+        result.sort()
+        if len(result) <= self.backupCount:
+            return []
+        return result[:len(result) - self.backupCount]
+
+
 class InitConf():
-    def __init__(self, background=False) -> None:
+    def __init__(self) -> None:
         self.pf               = platform.system()
         # self.new_title      = "Version"
         self.open_page        = "chrome://version/"
@@ -112,6 +151,7 @@ class InitConf():
         self.position         = ["0,0","%s,0" % str(int(self.getMWH()[0])/2)]
         self.browser          = "chrome"
         self.browser_close    = ""
+        self.chrome_options   = ""
 
     def get_cur_dir(self, file_name):
         return os.path.dirname(os.path.abspath(file_name))
@@ -131,10 +171,20 @@ class InitConf():
         if not os.path.isdir(c_path):
             os.makedirs(c_path)
 
+    def namer(self, name):
+        return name.replace(".log", "") + ".log"
+
     def get_logger(self, log_name):
         self.check_path(self.log_dir)
-        log_handler = handlers.TimedRotatingFileHandler(filename=self.log_dir + log_name + self.log_ext, backupCount=5)
+        log_handler = CustomTimedRotatingFileHandler(
+            filename = self.log_dir + log_name + self.log_ext,
+            when = 'midnight',
+            interval = 1,
+            delay=False,
+            backupCount = 5
+        )
         log_handler.suffix = "%Y%m%d"
+        log_handler.namer = self.namer
         formatter = logging.Formatter(
             '%(asctime)s,%(msecs)03d %(levelname)-5s [%(filename)-12s:%(lineno)03d] %(message)s',
             '%Y-%m-%d %H:%M:%S'
@@ -234,6 +284,7 @@ class InitConf():
                 self.user_data_dir = "C:/others/dev/chromedata/"
             case _:
                 self.driver_path   = "/home/lo/chromedata/chromedriver-linux64/chromedriver"
+                # self.driver_path   = "/home/lo/chromedata/chromedriver-linux64/138/chromedriver"
                 self.user_data_dir = "/home/lo/chromedata"
 
         import pyautogui
@@ -597,7 +648,7 @@ class PostGressDB(InitConf):
         else:
             ### get tasks
             self.tasks = self.get_tasks()
-        self.logger.info(f"successfully get tasks: {self.tasks}")
+        self.logger.debug(f"successfully get tasks: {self.tasks}")
 
     def check_schedule_time(self, profile, update_time, cur_time):
         schedule_hours = self.get_schedule_hours(profile)
@@ -606,7 +657,7 @@ class PostGressDB(InitConf):
             profile_id = profile.get('profile')
             task_name = profile.get('task')
             subtask = profile.get('subtask')
-            self.logger.info(f"profile: {profile_id}, schedule task: {task_name}, subtask:{subtask}  not in start time: {new_start_time}")
+            self.logger.info(f"profile: {profile_id}, schedule task: {task_name}, subtask:{subtask} not in start time: {new_start_time}")
             return
         return True
 
