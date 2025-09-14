@@ -13,6 +13,7 @@ import os
 import json
 import codecs
 import psutil
+import base64
 import requests
 import unicodedata
 
@@ -61,7 +62,7 @@ tasks_select_sql        =   '''
                                 i.val       val,
                                 i.retry     retry,
                                 i.fallback  fallback
-                            FROM tasks t left join inputs i on t.id=i.task where name=%s and subtask=%s order by t.id;
+                            FROM tasks t left join inputs i on t.id=i.task where t."name"=%s and t.subtask=%s order by t.id;
                             '''
 wallet_steps_select_sql   = 'SELECT * FROM tasks t left join inputs i on t.id=i.task left join extensions e on t."name"=e."name" where e.id=%s and t.subtask=%s order by t.id;'
 
@@ -107,15 +108,14 @@ class SeleniumTask(MouseTask, PostGressDB):
                 # if operation == "click":
                 #     return self.wait.until(EC.element_to_be_clickable((findby, findvalue)))
                 # return self.driver.find_elements(findby, findvalue) if eles else self.wait.until(EC.presence_of_element_located((findby, findvalue)))
-                if not operation:
-                    if eles:
-                        res = self.driver.find_elements(findby, findvalue)
-                    else:
-                        res = self.wait.until(EC.element_to_be_clickable((findby, findvalue)))
-                    return  res
-                else:
+                if operation:
                     WebDriverWait(self.driver, self.wait_time, ignored_exceptions=self.ignored_exceptions).until(EC.presence_of_element_located((findby, findvalue))).click()
                     return True
+                if eles:
+                    res = self.driver.find_elements(findby, findvalue)
+                else:
+                    res = self.wait.until(EC.element_to_be_clickable((findby, findvalue)))
+                return  res
             except Exception as e:
                 self.logger.debug(f"retry get value again: {findvalue}")
                 self.logger.debug(f"error message: {e}")
@@ -138,6 +138,9 @@ class SeleniumTask(MouseTask, PostGressDB):
     def save_page_to_local(self, file_name):
         with codecs.open(self.get_cur_path(file_name), "w", "utf-8") as hf:
             hf.write(self.driver.page_source)
+
+    def switch_task_handle(self):
+        self.driver.switch_to.window(self.task_handle)
 
     def get_handle(self, handle_title):
         self.logger.debug(f"try to get handle with title: {handle_title}")
@@ -170,8 +173,9 @@ class SeleniumTask(MouseTask, PostGressDB):
 
             if not handle_title and (cur_title not in self.known_titles):
                 self.driver.close()
-                self.driver.switch_to.window(self.task_handle)
-            elif handle_title in cur_title:
+                # self.driver.switch_to.window(self.task_handle)
+                self.switch_task_handle()
+            elif handle_title.lower() in cur_title.lower():
                 return handle
 
         return False if handle_title else True
@@ -188,7 +192,8 @@ class SeleniumTask(MouseTask, PostGressDB):
     def get_new_handle(self):
         ### running task in new tab
         if self.task_handle:
-            self.driver.switch_to.window(self.task_handle)
+            self.switch_task_handle()
+            # self.driver.switch_to.window(self.task_handle)
         self.driver.execute_script(f'''window.open("{self.new_url}", "_blank");''')
         self.wait_wallet()
         return self.get_handle_res(self.new_title)
@@ -198,8 +203,8 @@ class SeleniumTask(MouseTask, PostGressDB):
         for _ in range(self.r):
             try:
                 self.driver.get(findvalue)
-                # if not self.wait_for_element("xpath", "//head"):
-                #     continue
+                if findvalue.startswith("https://") and (not self.wait_for_element("xpath", "//body", "skip", self.r)):
+                    continue
                 break
             except Exception as e:
                 self.logger.error(f"failed to open url: {findvalue}...")
@@ -333,10 +338,10 @@ class BitBrowser(SeleniumTask):
         # chrome_options.add_argument("--no-first-run")
         # chrome_options.add_argument("--no-default-browser-check")
         # chrome_options.add_argument("--password-store=basic")
-        # chrome_options.add_argument("--user-data-dir=%s" % profile_path)
-        # chrome_options.add_argument("--fingerprint-config=%s" % profile_path)
-        # chrome_options.add_argument("--load-extension=%s" % profile_extensions)
-        # chrome_options.add_argument("--proxy-server=%s" % proxy)
+        # chrome_options.add_argument(f"--user-data-dir={profile_path}")
+        # chrome_options.add_argument(f"--fingerprint-config={profile_path}")
+        # chrome_options.add_argument(f"--load-extension={profile_extensions}")
+        # chrome_options.add_argument(f"--proxy-server={proxy}")
         # profile_driver = webdriver.Chrome(service=Service(executable_path=executable_path), options=chrome_options)
         self.driver = self.get_driver()
         res = self.exe_profile()
@@ -372,23 +377,14 @@ class ChromeBrowser(SeleniumTask):
                 self.logger.error(f"failed close the driver: {e}")
         self.wait_page_load()
 
-    def check_get_proxy(self):
+    def check_get_proxy(self, socks_proxy):
         return True
-
-    def get_proxy(self):
-        proxy = {
-            "socks5": "192.168.1.9:10000"
-        }
-        return proxy
-
-    def get_proxy_by_profile(self, profile_id):
-        return "socks://192.168.1.13:10808"
 
     def run_profile(self, profile, normal_check=False, schedule_task=False):
         # profile.update({"task":"taker","schedule_task":True})
         self.profile_id = profile.get('profile')
 
-        # if self.profile_id != '0e0ced5774fe508072b34df1f972cae3':
+        # if self.profile_id != '44a209e65c95431f20910cf074120dae':
         #    return
 
         self.schedule_task = profile.get('schedule_task')
@@ -398,28 +394,42 @@ class ChromeBrowser(SeleniumTask):
             return
         self.get_tasks_extensions(profile, schedule_task)
         directory = profile.get('directory')
+
         proxy = profile.get('proxy')
+        res = self.check_get_proxy(proxy)
+        if not res:
+            return
+
+        fingerprint_encode = profile.get('fingerprint')
+        fingerprint = json.loads(base64.b64decode(fingerprint_encode))
+        language = fingerprint.get('language')
+        # check fingerprint
 
         self.logger.info(f"start  profile: {self.profile_id}")
         self.chrome_options = Options()
-        # self.chrome_options.binary_location = "/home/lo/chrome/src/out/test/chrome"
-        self.chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
-        self.chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        # self.chrome_options.add_argument('--no-sandbox')
+        self.chrome_options.binary_location = "/home/lo/chrome/src/out/prod/chrome"
+        self.chrome_options.add_experimental_option('excludeSwitches', ['enable-logging', 'enable-automation'])
+        if fingerprint_encode:
+            self.chrome_options.add_argument(f"--fingerprint={fingerprint_encode}")
+        if language:
+            self.chrome_options.add_argument(f'--accept-lang={language}')
         # self.chrome_options.add_argument('--headless')
+        # self.chrome_options.add_argument('--no-sandbox')
         self.chrome_options.add_argument('--no-first-run')
         self.chrome_options.add_argument('--no-default-browser-check')
-        self.chrome_options.add_argument('--disable-gpu')
+        self.chrome_options.add_argument('--hide-crash-restore-bubble')
+
         # self.chrome_options.add_argument('--enable-unsafe-swiftshader')
         # self.chrome_options.add_argument('--use-webgpu-adapter=swiftshader')
+        # self.chrome_options.add_argument('--disable-gpu')
         # self.chrome_options.add_argument('--disable-gpu-driver-bug-workarounds')
         # self.chrome_options.add_argument('--disable-gpu-vendor-checks')
         # self.chrome_options.add_argument('--disable-dev-shm-usage')
-        self.chrome_options.add_argument('--hide-crash-restore-bubble')
-        self.chrome_options.add_argument('--disable-web-security')
-        self.chrome_options.add_argument('--ignore-certificate-errors')
-        self.chrome_options.add_argument('--ignore-ssl-errors')
-        # self.chrome_options.add_argument('--window-size=1200,1400')
+
+        # self.chrome_options.add_argument('--ignore-ssl-errors')
+        # self.chrome_options.add_argument('--ignore-certificate-errors')
+        # self.chrome_options.add_argument('--disable-web-security')
+        self.chrome_options.add_argument('--window-size=1200, 1600')
         self.chrome_options.add_argument(f"--proxy-server={proxy}")
         self.chrome_options.add_argument(f"--user-data-dir={os.path.join(self.user_data_dir, directory)}")
         # self.chrome_options.add_experimental_option("debuggerAddress", res['data']['http'])
@@ -491,14 +501,15 @@ class WebTask(Wallets, ChromeBrowser):
         handle_res = None
         if wallet_operation in self.wallet_operation_list:
             self.logger.debug(f"wallet_task_steps: {wallet_task_steps}...")
-            switch_handle = wallet_task_steps[-1].get('val')
+            # switch_handle = wallet_task_steps[-1].get('val')
             self.wait_wallet()
-            handle_res = self.get_handle_res(switch_handle)
+            # handle_res = self.get_handle_res(switch_handle)
+            handle_res = self.wall_handle
+            # self.driver.switch_to.window(self.wall_handle)
+            # if wallet_operation in ["confirm", "cancel", "connect", "switchnet"]:
+            #     self.driver.get("chrome-extension://nkbihfbeogaeaoehlefnkodbefgpgknn/notification.html")
 
-            if wallet_operation in ["confirm", "cancel", "connect", "switchnet"]:
-                self.driver.get("chrome-extension://nkbihfbeogaeaoehlefnkodbefgpgknn/notification.html")
-
-            wallet_val = switch_handle
+            wallet_val = wallet_operation
 
         elif wallet_operation == "switch":
             res = self.reset_last_net(wallet_val)
@@ -530,7 +541,8 @@ class WebTask(Wallets, ChromeBrowser):
 
         self.logger.info("wait for a moment let transaction finished then switch back to task tab...")
         self.wait_wallet()
-        self.driver.switch_to.window(self.task_handle)
+        # self.driver.switch_to.window(self.task_handle)
+        self.switch_task_handle()
         return True
 
     def handle_tasks(self, findby, findvalue, **kwargs):
@@ -548,7 +560,7 @@ class WebTask(Wallets, ChromeBrowser):
             case "input":
                 if subtask == "login":
                     val = self.wallet_pass
-                elif ';;' in val:
+                elif self.split_str in val:
                     val = self.get_random_from_range(self.split_str, val)
                 for v in str(val):
                     task_ele.send_keys(v)
@@ -581,6 +593,8 @@ class WebTask(Wallets, ChromeBrowser):
         if operation in ["url", "wallet", "mouse", "presence", "eles", "sleep", "close", "scroll", "tasks"]:
             res = self.handle_function(parameter=operation, findby=findby, findvalue=findvalue, val=val, retry=retry, operation=operation, subtask=subtask, fallback=fallback)
             if val == "skip":
+                # skip task then switch to task handle
+                self.switch_task_handle()
                 return True
             return res
 
@@ -612,7 +626,8 @@ class WebTask(Wallets, ChromeBrowser):
                 operation = step.get('operation')
                 if operation != "eles" and fallback:
                     if str(step.get('name')) != "metamask":
-                        self.driver.switch_to.window(self.task_handle)
+                        self.switch_task_handle()
+                        # self.driver.switch_to.window(self.task_handle)
                     res = self.handle_tasks(fallback, "fallback")
                     if not res:
                         self.logger.error(f"fallback task: {fallback} failed...")
@@ -674,7 +689,8 @@ class WebTask(Wallets, ChromeBrowser):
             if not res:
                 self.logger.info(f"profile: {self.profile_id}, task: {task_name}, subtask: {ost} failed, try next one")
                 continue
-            self.driver.switch_to.window(self.task_handle)
+            # self.driver.switch_to.window(self.task_handle)
+            self.switch_task_handle()
             self.logger.info(f"start  execute task: {task_name}, other task: {ost}")
             other_sub_exe_task = []
 
@@ -719,7 +735,7 @@ class WebTask(Wallets, ChromeBrowser):
         ### shuffle the task
         for task in self.get_random_items(self.tasks):
             task_name = task.get('name')
-            # if task_name not in ["nftfeed"]:
+            # if task_name not in ["pharos"]:
             #     continue
 
             # check if task is failed or already running
@@ -743,7 +759,8 @@ class WebTask(Wallets, ChromeBrowser):
             self.logger.info(f"finish profile: {self.profile_id}, task: {task_name}")
 
         self.logger.info(f"all tasks finished for profile: {self.profile_id}")
-        self.driver.switch_to.window(self.task_handle)
+        # self.driver.switch_to.window(self.task_handle)
+        self.switch_task_handle()
         self.driver.close()
 
     def exe_profile(self):
@@ -759,8 +776,6 @@ class WebTask(Wallets, ChromeBrowser):
         profile_item = self.get_profile(self.profile_id)
         self.wallet_pass = profile_item.get('pass')
 
-        # self.last_net = "zircuit"
-        # self.last_net = "morph holesky"
         ### login to wallets first...
         log_wallet = self.login_wallets()
         if not log_wallet:
@@ -787,6 +802,10 @@ class WebTask(Wallets, ChromeBrowser):
 
         ### all task finished for current profile, close the browser
         self.logger.info(f"finish profile: {self.profile_id}")
+        # close the tab
+        # self.driver.close()
+        # wait a moment then proceed with browser closure.
+        self.wait_page_load()
         self.last_net = ""
         self.task_handle = ""
         # self.position.append(position)

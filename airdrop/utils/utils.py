@@ -35,6 +35,7 @@ import psycopg2
 import psycopg2.extras
 
 from datetime import datetime, timezone, timedelta
+# from zoneinfo import ZoneInfo
 
 from os import path
 from configparser import ConfigParser
@@ -59,7 +60,7 @@ records_select_profile    = "SELECT * FROM records where profile=%s and schedule
 records_select_schedule   = "SELECT * FROM records where profile=%s and schedule=true  and task=%s and subtask=%s order by update_time desc limit 1;"
 records_select_by_sc      = """
                              SELECT * FROM 
-                               (SELECT r.profile,r.task,r.subtask,r.schedule,r.status,r.update_time,p.pass,p.proxy,p.timezone,p.directory FROM records r left join profiles p on r.profile=p.profile ) rp
+                               (SELECT r.profile,r.task,r.subtask,r.schedule,r.status,r.update_time,p.pass,p.proxy,p.timezone,p.directory,p.fingerprint FROM records r left join profiles p on r.profile=p.profile ) rp
                              where rp.profile=%s and rp.schedule=true and rp.status=true and rp.subtask is not null;
                             """
 schedule_hours_sql        = "SELECT val FROM inputs WHERE fallback=%s"
@@ -123,7 +124,7 @@ class InitConf():
         self.wait_handle      = 10
         self.WEB_PAGE_TIMEOUT = 30
 
-        self.confidence       = 0.9 if self.pf == "Windows" else 0.85
+        self.confidence       = 0.9 if self.pf == "Windows" else 0.8
         self.r                = 5
 
         self.split_str        = ";;"
@@ -146,7 +147,10 @@ class InitConf():
         self.background       = True if self.pf == "Linux" else False
         self.schedule_task    = False
         self.profile_running  = False
-        self.xvfb_pid_cmd     = "pidof Xvfb"
+        self.dummy_id         = 21
+        self.dummy_pid_cmd    = f"""
+                                    ps aux | awk -v regext="{self.dummy_id}-dummy" '{{if ($0 ~ regext && $11!="awk" && $11!="/bin/sh") print $2}}'
+                                 """
         self.init_pyautogui()
         self.position         = ["0,0","%s,0" % str(int(self.getMWH()[0])/2)]
         self.browser          = "chrome"
@@ -254,37 +258,36 @@ class InitConf():
     def exe_shell(self, command):
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True, text=True)
         stdout, stderr = process.communicate()
+        self.logger.debug(f"stdout: {stdout}...")
         self.exit_code = process.returncode
         return stdout.rstrip("\n"), stderr
 
-    def close_xvfb(self):
-        xvfb_pid, _ = self.exe_shell(self.xvfb_pid_cmd)
-        if xvfb_pid:
-            self.logger.info(f"close xvfb...")
-            self.exe_shell(f"sudo systemctl stop xvfb")
-            # self.exe_shell(f"kill {xvfb_pid}")
+    # def close_dummy_screen(self):
+    #     dummy_screen_pid, _ = self.exe_shell(self.dummy_pid_cmd)
+    #     if dummy_screen_pid:
+    #         self.logger.info(f"close dummy screen...")
+    #         self.exe_shell(f"sudo systemctl stop xorg{self.dummy_id}")
 
-    def create_xvfb(self):
-        os.environ["DISPLAY"] = ":99"
-        xvfb_pid, _ = self.exe_shell(self.xvfb_pid_cmd)
-        if not xvfb_pid:
-            self.logger.info(f"create new xvfb...")
-            self.exe_shell(f"sudo systemctl start xvfb")
-            # from pyvirtualdisplay.display import Display
-            # disp = Display(visible=True, size=(2560, 1440), backend="xvfb", use_xauth=True, extra_args=[":99"])
-            # disp.start()
+    def create_dummy_screen(self):
+        os.environ["DISPLAY"] = f":{self.dummy_id}"
+        # print(self.dummy_pid_cmd)
+        dummy_screen_pid, _ = self.exe_shell(self.dummy_pid_cmd)
+        # print(dummy_screen_pid)
+        if not dummy_screen_pid:
+            self.logger.info(f"create new dummy screen...")
+            self.exe_shell(f"sudo systemctl start xorg{self.dummy_id}")
 
     def init_pyautogui(self):
         if self.background:
-            self.create_xvfb()
+            self.create_dummy_screen()
 
         match self.pf:
             case "Windows":
                 self.driver_path   = "C:/others/dev/py/chromedriver-win64/chromedriver.exe"
                 self.user_data_dir = "C:/others/dev/chromedata/"
             case _:
-                self.driver_path   = "/home/lo/chromedata/chromedriver-linux64/chromedriver"
-                # self.driver_path   = "/home/lo/chromedata/chromedriver-linux64/138/chromedriver"
+                # self.driver_path   = "/home/lo/chromedata/chromedriver-linux64/chromedriver"
+                self.driver_path   = "/home/lo/chrome/src/out/prod/chromedriver"
                 self.user_data_dir = "/home/lo/chromedata"
 
         import pyautogui
@@ -681,7 +684,11 @@ class PostGressDB(InitConf):
             update_time = res.get('update_time').astimezone(pytz.utc)
             update_date = update_time.date()
             if normal_check:
-                if cur_date == update_date:
+                # az = profile.get('timezone')
+                # update_az_date = update_time.astimezone(ZoneInfo(az)).date()
+                # cur_az_date = cur_time.astimezone(ZoneInfo(az)).date()
+                self.logger.debug(f"update_date: {update_date}, cur_date: {cur_date}")
+                if update_date >= cur_date:
                     self.logger.info(f"profile: {already_run} already running today")
                     return
             else:
@@ -720,7 +727,8 @@ class PostGressDB(InitConf):
         return running_records
 
     def check_task(self, task_name, sub_task=None):
-        cur_time, current_date = self.get_cur_time_date()
+        # profile = self.get_profile(self.profile_id)
+        cur_time, cur_date = self.get_cur_time_date()
         if sub_task:
             records_select = records_select_by_subtask
             records_insert = records_insert_by_subtask
@@ -740,6 +748,10 @@ class PostGressDB(InitConf):
         status = res.get('status')
         schedule = res.get('schedule')
         update_time = res.get('update_time').astimezone(pytz.utc) or datetime.strptime("2020-01-01", "%Y-%m-%d").astimezone(pytz.utc)
+
+        # az = profile.get('timezone')
+        # cur_az_date = cur_time.astimezone(ZoneInfo(az)).date()
+        # update_az_date = update_time.astimezone(ZoneInfo(az)).date()
         update_date = update_time.date()
 
         match status:
@@ -747,7 +759,7 @@ class PostGressDB(InitConf):
                 self.logger.error(f"profile: {self.profile_id}, task: {task_name}, subtask: {sub_task} failed last time")
                 return
             case 1:
-                if current_date == update_date:
+                if update_date >= cur_date:
                     self.logger.info(f"profile: {self.profile_id}, task: {task_name}, subtask: {sub_task} already running today")
                     # for normal task
                     if not self.schedule_task or (sub_task and not schedule):
